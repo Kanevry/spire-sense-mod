@@ -1,0 +1,29 @@
+<Project Sdk="Godot.NET.Sdk/4.5.0">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SpireSenseMod</RootNamespace>
+    <AssemblyName>SpireSenseMod</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Local development paths — create local.props with STS2GamePath -->
+  <Import Project="local.props" Condition="Exists('local.props')" />
+
+  <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="2.3.*" />
+  </ItemGroup>
+
+  <!-- Copy output to STS2 mods folder on build -->
+  <Target Name="DeployToMods" AfterTargets="Build" Condition="'$(STS2GamePath)' != ''">
+    <PropertyGroup>
+      <ModOutputPath>$(STS2GamePath)/mods/SpireSense</ModOutputPath>
+    </PropertyGroup>
+    <MakeDir Directories="$(ModOutputPath)" />
+    <Copy SourceFiles="$(OutputPath)SpireSenseMod.dll" DestinationFolder="$(ModOutputPath)" />
+    <Copy SourceFiles="mod_manifest.json" DestinationFolder="$(ModOutputPath)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,55 @@
+name: Build SpireSense Mod
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore SpireSenseMod/SpireSenseMod.csproj
+
+      - name: Build
+        run: dotnet build SpireSenseMod/SpireSenseMod.csproj --configuration Release --no-restore
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpireSenseMod
+          path: |
+            SpireSenseMod/bin/Release/net9.0/SpireSenseMod.dll
+            SpireSenseMod/mod_manifest.json
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SpireSenseMod
+          path: release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/SpireSenseMod.dll
+            release/mod_manifest.json
+          generate_release_notes: true

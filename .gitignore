@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+
+# Local development
+local.props
+*.pck
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Godot
+.godot/
