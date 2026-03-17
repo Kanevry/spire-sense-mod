@@ -6,18 +6,12 @@ namespace SpireSenseMod;
 /// <summary>
 /// Manages the in-game overlay using Godot's CanvasLayer.
 /// Renders minimal tier badges (S/A/B/C/D/F) on card reward screens.
+/// Lazy-initializes by attaching to the scene tree when first needed.
 /// </summary>
 public class OverlayManager
 {
     private CanvasLayer? _overlayLayer;
     private readonly List<Control> _activeBadges = new();
-
-    public void Initialize(Node parent)
-    {
-        _overlayLayer = new CanvasLayer();
-        _overlayLayer.Layer = 100; // Render on top of game UI
-        parent.AddChild(_overlayLayer);
-    }
 
     /// <summary>
     /// Show tier badges for card rewards.
@@ -25,6 +19,7 @@ public class OverlayManager
     /// </summary>
     public void ShowCardTiers(List<CardInfo> cards)
     {
+        EnsureInitialized();
         HideCardTiers();
 
         if (_overlayLayer == null) return;
@@ -52,45 +47,31 @@ public class OverlayManager
         _activeBadges.Clear();
     }
 
+    private void EnsureInitialized()
+    {
+        if (_overlayLayer != null) return;
+
+        // Find the scene tree root and attach overlay
+        var sceneTree = Engine.GetMainLoop() as SceneTree;
+        if (sceneTree?.Root == null) return;
+
+        _overlayLayer = new CanvasLayer();
+        _overlayLayer.Layer = 100; // Render on top of game UI
+        sceneTree.Root.CallDeferred("add_child", _overlayLayer);
+    }
+
     private static Control CreateTierBadge(CardInfo card, int index)
     {
         // Tier is determined by the web app's scoring engine.
         // For the in-game overlay, we use a simplified static tier
         // or fetch from the web app API.
         var tier = "?"; // Will be populated by scoring data
+        var score = 0;
 
-        var container = new PanelContainer();
-        container.Position = new Vector2(200 + (index * 300), 50);
-        container.Size = new Vector2(40, 40);
+        var badge = new TierBadge();
+        badge.Position = new Vector2(200 + (index * 300), 50);
+        badge.SetData(tier, score, card.Name);
 
-        // Styling
-        var styleBox = new StyleBoxFlat();
-        styleBox.BgColor = GetTierColor(tier);
-        styleBox.CornerRadiusTopLeft = 6;
-        styleBox.CornerRadiusTopRight = 6;
-        styleBox.CornerRadiusBottomLeft = 6;
-        styleBox.CornerRadiusBottomRight = 6;
-        container.AddThemeStyleboxOverride("panel", styleBox);
-
-        var label = new Label();
-        label.Text = tier;
-        label.HorizontalAlignment = HorizontalAlignment.Center;
-        label.VerticalAlignment = VerticalAlignment.Center;
-        label.AddThemeColorOverride("font_color", Colors.White);
-        label.AddThemeFontSizeOverride("font_size", 20);
-        container.AddChild(label);
-
-        return container;
+        return badge;
     }
-
-    private static Color GetTierColor(string tier) => tier switch
-    {
-        "S" => new Color(0.95f, 0.65f, 0.15f),  // Gold
-        "A" => new Color(0.30f, 0.75f, 0.35f),   // Green
-        "B" => new Color(0.25f, 0.55f, 0.85f),   // Blue
-        "C" => new Color(0.55f, 0.45f, 0.75f),   // Purple
-        "D" => new Color(0.75f, 0.45f, 0.25f),   // Orange
-        "F" => new Color(0.75f, 0.25f, 0.20f),   // Red
-        _ => new Color(0.4f, 0.4f, 0.4f),        // Gray
-    };
 }

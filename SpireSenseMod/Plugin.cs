@@ -44,9 +44,9 @@ public static class Plugin
             WsServer.Start();
             GD.Print("[SpireSense] WebSocket server started.");
 
-            // Initialize overlay
+            // Initialize overlay (lazy — attaches to scene tree when game UI is ready)
             Overlay = new OverlayManager();
-            GD.Print("[SpireSense] Overlay initialized.");
+            GD.Print("[SpireSense] Overlay initialized (will attach to scene tree on first use).");
 
             GD.Print("[SpireSense] Ready! Connect at http://localhost:8080");
         }

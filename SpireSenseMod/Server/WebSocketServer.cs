@@ -12,7 +12,7 @@ namespace SpireSenseMod;
 
 /// <summary>
 /// WebSocket server for real-time game event streaming.
-/// Clients connect at ws://localhost:8080/ws to receive live updates.
+/// Clients connect at ws://localhost:8081 to receive live updates.
 /// </summary>
 public class WebSocketServer
 {
