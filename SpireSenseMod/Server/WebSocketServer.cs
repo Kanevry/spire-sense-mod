@@ -20,6 +20,9 @@ public class WebSocketServer
     private readonly GameStateTracker _stateTracker;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private Task? _pingTask;
+
+    private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(30);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -41,6 +44,7 @@ public class WebSocketServer
     {
         _listener.Start();
         Task.Run(() => AcceptLoop(_cts.Token));
+        _pingTask = Task.Run(() => PingLoop(_cts.Token));
     }
 
     public void Stop()
@@ -116,7 +120,12 @@ public class WebSocketServer
                     await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client disconnected", ct);
                     break;
                 }
-                // We don't process incoming messages — this is a broadcast-only server
+
+                // Respond to ping frames with pong (keeps connection alive)
+                // Note: System.Net.WebSockets handles ping/pong at the protocol level
+                // automatically, but we still need to read frames to keep the connection active.
+                // No additional action needed — ReceiveAsync consumes ping frames and the
+                // runtime sends pong responses automatically.
             }
         }
         catch (WebSocketException)
@@ -127,6 +136,56 @@ public class WebSocketServer
         {
             _clients.TryRemove(clientId, out _);
             GD.Print($"[SpireSense WS] Client disconnected: {clientId}");
+        }
+    }
+
+    /// <summary>
+    /// Periodically sends ping frames to all connected clients to detect dead connections.
+    /// Clients that fail to respond will be cleaned up on the next broadcast or ping cycle.
+    /// </summary>
+    private async Task PingLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(PingInterval, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            var disconnected = new System.Collections.Generic.List<string>();
+
+            foreach (var (clientId, ws) in _clients)
+            {
+                try
+                {
+                    if (ws.State == WebSocketState.Open)
+                    {
+                        // Send a small text message as an application-level ping.
+                        // System.Net.WebSockets does not expose raw ping frame sending,
+                        // so we use a lightweight text message that clients can ignore.
+                        var pingEvent = new GameEvent { Type = "ping", Data = null };
+                        await SendToClient(ws, pingEvent);
+                    }
+                    else
+                    {
+                        disconnected.Add(clientId);
+                    }
+                }
+                catch
+                {
+                    disconnected.Add(clientId);
+                }
+            }
+
+            foreach (var id in disconnected)
+            {
+                _clients.TryRemove(id, out _);
+                GD.Print($"[SpireSense WS] Dead connection removed: {id}");
+            }
         }
     }
 

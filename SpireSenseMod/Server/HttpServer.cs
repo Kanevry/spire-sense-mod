@@ -60,7 +60,7 @@ public class HttpServer
             }
             catch (Exception ex)
             {
-                GD.PrintErr($"[SpireSense HTTP] Error: {ex.Message}");
+                GD.PrintErr($"[SpireSense HTTP] Error: {ex}");
             }
         }
     }
@@ -107,7 +107,7 @@ public class HttpServer
         }
         catch (Exception ex)
         {
-            GD.PrintErr($"[SpireSense HTTP] Request error: {ex.Message}");
+            GD.PrintErr($"[SpireSense HTTP] Request error: {ex}");
             SendJson(response, new { error = "Internal server error" }, 500);
         }
     }

@@ -26,6 +26,9 @@ public static class GameStateApi
         {
             Id = traverse.Field("id")?.GetValue<string>() ?? "",
             Name = traverse.Field("name")?.GetValue<string>() ?? traverse.Property("Name")?.GetValue<string>() ?? "",
+            Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
+                ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
+                ?? "neutral",
             Type = traverse.Field("type")?.GetValue<string>()?.ToLowerInvariant() ?? "attack",
             Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
             Cost = traverse.Field("cost")?.GetValue<int>() ?? 0,
@@ -47,6 +50,9 @@ public static class GameStateApi
         {
             Id = traverse.Field("id")?.GetValue<string>() ?? "",
             Name = traverse.Field("name")?.GetValue<string>() ?? "",
+            Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
+                ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
+                ?? "neutral",
             Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
             Description = traverse.Field("description")?.GetValue<string>() ?? "",
             Tags = new List<string>(),
