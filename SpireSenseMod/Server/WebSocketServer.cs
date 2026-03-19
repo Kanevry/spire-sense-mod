@@ -67,6 +67,7 @@ public class WebSocketServer
         _clients.Clear();
         _pendingSends.Clear();
         _listener.Stop();
+        _cts.Dispose();
     }
 
     private async Task AcceptLoop(CancellationToken ct)

@@ -7,9 +7,10 @@
 - **Game Engine:** Godot 4.5.1 (STS2 runs on Godot, NOT Unity)
 - **SDK:** Godot.NET.Sdk 4.5.0, .NET 9.0, C# (latest LangVersion)
 - **Patching:** Harmony 2.3.x (runtime method patching via `[HarmonyPatch]`)
-- **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`
+- **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
 - **Status:** Early Access -- all Harmony patch targets are commented out (placeholder class/method names need verification via game DLL decompilation)
+- **Debug Mode:** `Plugin.DebugMode = true` enables TypeDiscovery (runtime assembly scanning)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
 
 ## Commands
@@ -31,7 +32,7 @@ No test framework is set up yet. No CI pipeline.
 
 ```
 SpireSenseMod/
-  Plugin.cs              # Entry point: inits Harmony, HTTP, WebSocket, Overlay
+  Plugin.cs              # Entry point: Init() + Unload(), inits Harmony, HTTP, WebSocket, Overlay
   GameStateTracker.cs    # Thread-safe central state (lock-based), event emitter
   Models/                # JSON-serializable data models (System.Text.Json)
     GameState.cs         # Full snapshot: screen, character, act, floor, deck, relics, combat, map, shop, events
@@ -43,13 +44,15 @@ SpireSenseMod/
     MapPatch.cs          # Floor/map navigation
     DeckPatch.cs         # Card added, relic obtained, run start/end
   Server/
-    HttpServer.cs        # HttpListener on localhost:8080, CORS enabled
-    WebSocketServer.cs   # HttpListener on localhost:8081, broadcast-only
-    GameStateApi.cs      # Extracts game objects to models via Harmony Traverse (reflection)
+    HttpServer.cs        # HttpListener on localhost:8080, CORS, 5s timeout, /api/version
+    WebSocketServer.cs   # HttpListener on localhost:8081, broadcast with backpressure (max 10 pending, 5s send timeout)
+    GameStateApi.cs      # Extracts game objects to models via Harmony Traverse (ExtractCards, ExtractPowers, ExtractPotions)
   Overlay/
     OverlayManager.cs    # Godot CanvasLayer (layer 100), lazy-inits on scene tree
     TierBadge.cs         # Custom Control -- draws colored S/A/B/C/D/F badges
-  Data/CardTiers/        # Empty -- planned for static tier data
+  Data/
+    CardTiers/           # Empty -- planned for static tier data
+    TypeDiscovery.cs     # Runtime assembly scanner for STS2 class name verification (debug mode only)
 ```
 
 ## API Protocol
@@ -60,6 +63,7 @@ SpireSenseMod/
 |--------|---------------|---------------------------------------|
 | GET    | /api/state    | Full game state snapshot (JSON)       |
 | GET    | /api/health   | Health check + version                |
+| GET    | /api/version  | Mod version info                      |
 | GET    | /api/deck     | Deck contents + count                 |
 | GET    | /api/combat   | Combat state (404 if not in combat)   |
 
@@ -71,7 +75,9 @@ Broadcast-only (server never reads client messages). On connect, sends immediate
 
 Event format: `{ "type": "event_type", "data": { ... } }`
 
-Events: `state_update`, `card_rewards_shown`, `card_picked`, `card_played`, `relic_obtained`, `combat_start`, `combat_end`, `floor_changed`, `run_start`, `run_end`
+Events: `state_update`, `card_rewards_shown`, `card_picked`, `card_played`, `relic_obtained`, `combat_start`, `combat_end`, `floor_changed`, `run_start`, `run_end`, `heartbeat`
+
+Backpressure: max 10 pending sends per client, 5s send timeout. Slow clients are skipped and logged.
 
 ## Game Integration
 

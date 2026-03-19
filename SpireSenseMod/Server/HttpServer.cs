@@ -43,6 +43,7 @@ public class HttpServer
     {
         _cts.Cancel();
         _listener.Stop();
+        _cts.Dispose();
     }
 
     private async Task ListenLoop(CancellationToken ct)
