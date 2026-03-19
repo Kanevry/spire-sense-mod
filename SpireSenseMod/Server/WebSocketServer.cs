@@ -20,9 +20,12 @@ public class WebSocketServer
     private readonly GameStateTracker _stateTracker;
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+    private readonly ConcurrentDictionary<string, int> _pendingSends = new();
     private Task? _pingTask;
 
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
+    private const int MaxPendingSends = 10;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -62,6 +65,7 @@ public class WebSocketServer
             catch { /* ignore close errors */ }
         }
         _clients.Clear();
+        _pendingSends.Clear();
         _listener.Stop();
     }
 
@@ -84,7 +88,7 @@ public class WebSocketServer
                     // Send current state immediately
                     var state = _stateTracker.GetCurrentState();
                     var stateEvent = new GameEvent { Type = "state_update", Data = state };
-                    await SendToClient(wsContext.WebSocket, stateEvent);
+                    await SendToClient(clientId, wsContext.WebSocket, stateEvent);
 
                     _ = Task.Run(() => ReceiveLoop(clientId, wsContext.WebSocket, ct), ct);
                 }
@@ -135,6 +139,7 @@ public class WebSocketServer
         finally
         {
             _clients.TryRemove(clientId, out _);
+            _pendingSends.TryRemove(clientId, out _);
             GD.Print($"[SpireSense WS] Client disconnected: {clientId}");
         }
     }
@@ -167,8 +172,8 @@ public class WebSocketServer
                         // Send a small text message as an application-level ping.
                         // System.Net.WebSockets does not expose raw ping frame sending,
                         // so we use a lightweight text message that clients can ignore.
-                        var pingEvent = new GameEvent { Type = "ping", Data = null };
-                        await SendToClient(ws, pingEvent);
+                        var heartbeatEvent = new GameEvent { Type = "heartbeat", Data = null };
+                        await SendToClient(clientId, ws, heartbeatEvent);
                     }
                     else
                     {
@@ -199,17 +204,26 @@ public class WebSocketServer
             {
                 try
                 {
+                    // Backpressure: skip clients with too many pending sends
+                    var pending = _pendingSends.GetOrAdd(clientId, 0);
+                    if (pending >= MaxPendingSends)
+                    {
+                        GD.Print($"[SpireSense WS] Backpressure: skipping client {clientId} ({pending} pending)");
+                        continue;
+                    }
+
                     if (ws.State == WebSocketState.Open)
                     {
-                        await SendToClient(ws, gameEvent);
+                        await SendToClient(clientId, ws, gameEvent);
                     }
                     else
                     {
                         disconnected.Add(clientId);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    GD.PrintErr($"[SpireSense WS] Broadcast error for {clientId}: {ex.Message}");
                     disconnected.Add(clientId);
                 }
             }
@@ -217,19 +231,30 @@ public class WebSocketServer
             foreach (var id in disconnected)
             {
                 _clients.TryRemove(id, out _);
+                _pendingSends.TryRemove(id, out _);
             }
         });
     }
 
-    private static async Task SendToClient(WebSocket ws, GameEvent gameEvent)
+    private async Task SendToClient(string clientId, WebSocket ws, GameEvent gameEvent)
     {
-        var json = JsonSerializer.Serialize(gameEvent, JsonOptions);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await ws.SendAsync(
-            new ArraySegment<byte>(bytes),
-            WebSocketMessageType.Text,
-            endOfMessage: true,
-            CancellationToken.None
-        );
+        _pendingSends.AddOrUpdate(clientId, 1, (_, v) => v + 1);
+        try
+        {
+            var json = JsonSerializer.Serialize(gameEvent, JsonOptions);
+            var bytes = Encoding.UTF8.GetBytes(json);
+
+            using var timeoutCts = new CancellationTokenSource(SendTimeout);
+            await ws.SendAsync(
+                new ArraySegment<byte>(bytes),
+                WebSocketMessageType.Text,
+                endOfMessage: true,
+                timeoutCts.Token
+            );
+        }
+        finally
+        {
+            _pendingSends.AddOrUpdate(clientId, 0, (_, v) => Math.Max(0, v - 1));
+        }
     }
 }

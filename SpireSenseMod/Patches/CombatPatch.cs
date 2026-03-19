@@ -69,10 +69,11 @@ public static class CombatPatch
                 if (state.Combat != null)
                 {
                     state.Combat.Turn++;
-                    // Hand, draw pile, discard pile would be extracted here
-                    // state.Combat.Hand = ExtractCards(traverse.Field("hand"));
-                    // state.Combat.DrawPile = ExtractCards(traverse.Field("drawPile"));
-                    // state.Combat.DiscardPile = ExtractCards(traverse.Field("discardPile"));
+                    // Extract card piles — field names are placeholders pending decompilation
+                    state.Combat.Hand = GameStateApi.ExtractCards(traverse.Field("hand"));
+                    state.Combat.DrawPile = GameStateApi.ExtractCards(traverse.Field("drawPile"));
+                    state.Combat.DiscardPile = GameStateApi.ExtractCards(traverse.Field("discardPile"));
+                    state.Combat.ExhaustPile = GameStateApi.ExtractCards(traverse.Field("exhaustPile"));
                 }
             });
 

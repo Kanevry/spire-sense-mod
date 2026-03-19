@@ -74,6 +74,9 @@ public class MonsterInfo
     [JsonPropertyName("intent")]
     public string Intent { get; set; } = "unknown";
 
+    [JsonPropertyName("intentDamage")]
+    public int IntentDamage { get; set; }
+
     [JsonPropertyName("powers")]
     public List<PowerInfo> Powers { get; set; } = new();
 }

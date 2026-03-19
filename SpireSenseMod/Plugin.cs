@@ -16,6 +16,9 @@ public static class Plugin
     public static OverlayManager? Overlay { get; private set; }
     public static GameStateTracker? StateTracker { get; private set; }
 
+    /// <summary>Debug mode enables type discovery logging and verbose output.</summary>
+    public static bool DebugMode { get; set; }
+
     private const string HarmonyId = "com.spiresense.mod";
     private const int HttpPort = 8080;
 
@@ -48,12 +51,48 @@ public static class Plugin
             Overlay = new OverlayManager();
             GD.Print("[SpireSense] Overlay initialized (will attach to scene tree on first use).");
 
+            // Run type discovery in debug mode
+            if (DebugMode)
+            {
+                Data.TypeDiscovery.DiscoverAndLog();
+            }
+
             GD.Print("[SpireSense] Ready! Connect at http://localhost:8080");
         }
         catch (Exception ex)
         {
             GD.PrintErr($"[SpireSense] Initialization failed: {ex.Message}");
             GD.PrintErr(ex.StackTrace);
+        }
+    }
+
+    /// <summary>
+    /// Clean shutdown: stop servers, unpatch Harmony, release resources.
+    /// Called by the mod manager when the mod is unloaded or the game exits.
+    /// </summary>
+    public static void Unload()
+    {
+        try
+        {
+            GD.Print("[SpireSense] Unloading...");
+
+            Server?.Stop();
+            Server = null;
+
+            WsServer?.Stop();
+            WsServer = null;
+
+            HarmonyInstance?.UnpatchAll(HarmonyId);
+            HarmonyInstance = null;
+
+            Overlay = null;
+            StateTracker = null;
+
+            GD.Print("[SpireSense] Unloaded successfully.");
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] Unload error: {ex.Message}");
         }
     }
 }

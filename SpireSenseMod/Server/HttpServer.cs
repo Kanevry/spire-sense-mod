@@ -52,7 +52,18 @@ public class HttpServer
             try
             {
                 var context = await _listener.GetContextAsync();
-                _ = Task.Run(() => HandleRequest(context), ct);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Run(() => HandleRequest(context)).WaitAsync(TimeSpan.FromSeconds(5));
+                    }
+                    catch (TimeoutException)
+                    {
+                        GD.PrintErr("[SpireSense HTTP] Request timed out");
+                        try { context.Response.StatusCode = 504; context.Response.Close(); } catch { }
+                    }
+                }, ct);
             }
             catch (HttpListenerException) when (ct.IsCancellationRequested)
             {
@@ -94,6 +105,9 @@ public class HttpServer
                 case "/api/health":
                     HandleHealth(response);
                     break;
+                case "/api/version":
+                    HandleVersion(response);
+                    break;
                 case "/api/deck":
                     HandleGetDeck(response);
                     break;
@@ -129,6 +143,17 @@ public class HttpServer
         });
     }
 
+    private static void HandleVersion(HttpListenerResponse response)
+    {
+        SendJson(response, new
+        {
+            mod = "SpireSense",
+            version = "0.1.0",
+            api = "v1",
+            game = "Slay the Spire 2",
+        });
+    }
+
     private void HandleGetDeck(HttpListenerResponse response)
     {
         var state = _stateTracker.GetCurrentState();
@@ -155,6 +180,7 @@ public class HttpServer
             {
                 "GET /api/state — Full game state",
                 "GET /api/health — Server health check",
+                "GET /api/version — Mod version info",
                 "GET /api/deck — Current deck",
                 "GET /api/combat — Current combat state",
                 "WS /ws — WebSocket real-time events",
@@ -172,6 +198,7 @@ public class HttpServer
 
         response.ContentLength64 = bytes.Length;
         response.OutputStream.Write(bytes, 0, bytes.Length);
+        response.OutputStream.Flush();
         response.Close();
     }
 }

@@ -40,6 +40,34 @@ public static class GameStateApi
     }
 
     /// <summary>
+    /// Extract a list of cards from a game collection (hand, draw pile, discard pile, etc.).
+    /// The source should be a Traverse pointing to a collection of card objects.
+    /// </summary>
+    public static List<CardInfo> ExtractCards(Traverse? source)
+    {
+        var cards = new List<CardInfo>();
+        if (source == null) return cards;
+
+        try
+        {
+            var collection = source.GetValue<object>();
+            if (collection is System.Collections.IEnumerable enumerable)
+            {
+                foreach (var card in enumerable)
+                {
+                    cards.Add(ExtractCardInfo(card));
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] ExtractCards error: {ex.Message}");
+        }
+
+        return cards;
+    }
+
+    /// <summary>
     /// Extract relic info from a game relic object.
     /// </summary>
     public static RelicInfo ExtractRelicInfo(object gameRelic)
@@ -61,12 +89,13 @@ public static class GameStateApi
 
     /// <summary>
     /// Extract monster info from a game creature/monster object.
+    /// Includes power traversal and intent damage value.
     /// </summary>
     public static MonsterInfo ExtractMonsterInfo(object gameMonster)
     {
         var traverse = Traverse.Create(gameMonster);
 
-        return new MonsterInfo
+        var info = new MonsterInfo
         {
             Id = traverse.Field("id")?.GetValue<string>() ?? "",
             Name = traverse.Field("name")?.GetValue<string>() ?? "",
@@ -74,8 +103,80 @@ public static class GameStateApi
             MaxHp = traverse.Field("maxHp")?.GetValue<int>() ?? 0,
             Block = traverse.Field("block")?.GetValue<int>() ?? 0,
             Intent = traverse.Field("intent")?.GetValue<string>()?.ToLowerInvariant() ?? "unknown",
-            Powers = new List<PowerInfo>(),
+            IntentDamage = traverse.Field("intentDmg")?.GetValue<int>()
+                ?? traverse.Field("intentDamage")?.GetValue<int>()
+                ?? 0,
+            Powers = ExtractPowers(traverse.Field("powers")),
         };
+
+        return info;
+    }
+
+    /// <summary>
+    /// Extract powers/buffs from a game object's powers collection.
+    /// </summary>
+    public static List<PowerInfo> ExtractPowers(Traverse? source)
+    {
+        var powers = new List<PowerInfo>();
+        if (source == null) return powers;
+
+        try
+        {
+            var collection = source.GetValue<object>();
+            if (collection is System.Collections.IEnumerable enumerable)
+            {
+                foreach (var power in enumerable)
+                {
+                    var pt = Traverse.Create(power);
+                    powers.Add(new PowerInfo
+                    {
+                        Id = pt.Field("id")?.GetValue<string>() ?? pt.Field("powerId")?.GetValue<string>() ?? "",
+                        Name = pt.Field("name")?.GetValue<string>() ?? "",
+                        Amount = pt.Field("amount")?.GetValue<int>() ?? pt.Field("stackAmount")?.GetValue<int>() ?? 0,
+                    });
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] ExtractPowers error: {ex.Message}");
+        }
+
+        return powers;
+    }
+
+    /// <summary>
+    /// Extract potions from a game object's potions collection.
+    /// </summary>
+    public static List<PotionInfo> ExtractPotions(Traverse? source)
+    {
+        var potions = new List<PotionInfo>();
+        if (source == null) return potions;
+
+        try
+        {
+            var collection = source.GetValue<object>();
+            if (collection is System.Collections.IEnumerable enumerable)
+            {
+                foreach (var potion in enumerable)
+                {
+                    var pt = Traverse.Create(potion);
+                    potions.Add(new PotionInfo
+                    {
+                        Id = pt.Field("id")?.GetValue<string>() ?? pt.Field("potionId")?.GetValue<string>() ?? "",
+                        Name = pt.Field("name")?.GetValue<string>() ?? "",
+                        Description = pt.Field("description")?.GetValue<string>() ?? "",
+                        CanUse = pt.Field("canUse")?.GetValue<bool>() ?? true,
+                    });
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] ExtractPotions error: {ex.Message}");
+        }
+
+        return potions;
     }
 
     /// <summary>
@@ -93,8 +194,8 @@ public static class GameStateApi
             Energy = traverse.Field("energy")?.GetValue<int>() ?? 0,
             MaxEnergy = traverse.Field("maxEnergy")?.GetValue<int>() ?? 3,
             Gold = traverse.Field("gold")?.GetValue<int>() ?? 0,
-            Powers = new List<PowerInfo>(),
-            Potions = new List<PotionInfo>(),
+            Powers = ExtractPowers(traverse.Field("powers")),
+            Potions = ExtractPotions(traverse.Field("potions")),
         };
     }
 }
