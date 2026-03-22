@@ -1,6 +1,6 @@
 using System;
-using HarmonyLib;
 using Godot;
+using HarmonyLib;
 
 namespace SpireSenseMod;
 

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
-using HarmonyLib;
 using Godot;
+using HarmonyLib;
 
 namespace SpireSenseMod.Patches;
 

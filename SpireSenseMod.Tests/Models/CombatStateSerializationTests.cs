@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SpireSenseMod;
+using Xunit;
 
 namespace SpireSenseMod.Tests.Models;
 

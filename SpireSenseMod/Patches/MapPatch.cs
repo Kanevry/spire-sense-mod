@@ -1,5 +1,5 @@
-using HarmonyLib;
 using Godot;
+using HarmonyLib;
 
 namespace SpireSenseMod.Patches;
 
