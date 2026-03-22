@@ -8,72 +8,92 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for the shop screen.
 /// Intercepts shop entry/exit and extracts available cards, relics, and prices.
 ///
-/// NOTE: The target class and method names are placeholders based on STS2
-/// decompiled patterns. These MUST be verified against actual game assemblies
-/// and updated as the game evolves during Early Access.
-///
-/// Known STS2 patterns from sts2-advisor/BetterSpire2:
-/// - Shop is a distinct screen with card/relic inventories
-/// - Items have associated gold prices
-/// - A callback fires when the player enters/exits the shop
+/// STS2 classes (from sts2.dll decompilation):
+/// - MerchantRoom (MegaCrit.Sts2.Core.Rooms) — extends AbstractRoom
+///   - Enter(IRunState?, bool) — enters shop room
+///   - Exit(IRunState?) — exits shop room
+/// - NMerchantInventory (MegaCrit.Sts2.Core.Nodes.Screens.Shops)
+///   - Initialize(MerchantInventory, MerchantDialogueSet)
+///   - Open() — opens shop UI
+///   - OnPurchaseCompleted(PurchaseStatus, MerchantEntry) — item purchased
+/// - MerchantInventory (MegaCrit.Sts2.Core.Entities.Merchant) — data model
+///   - MerchantCardEntry, MerchantRelicEntry, MerchantPotionEntry — item types
 /// </summary>
 public static class ShopPatch
 {
     /// <summary>
-    /// Postfix patch: fires when the shop screen is entered.
+    /// Postfix patch: fires when the merchant room is entered.
     /// Captures available cards, relics, and their prices.
     ///
-    /// TARGET: The method that initializes the shop UI with items.
-    /// This needs to be identified via decompilation of the game DLL.
-    /// Example: [HarmonyPatch(typeof(ShopScreen), "OnEnter")]
+    /// TARGET: MerchantRoom.Enter(IRunState?, bool)
     /// </summary>
-    // [HarmonyPatch(typeof(ShopScreen), "OnEnter")]
-    // [HarmonyPostfix]
+    [HarmonyPatch("MegaCrit.Sts2.Core.Rooms.MerchantRoom", "Enter")]
+    [HarmonyPostfix]
     public static void OnShopEntered(object __instance)
     {
         try
         {
             var traverse = Traverse.Create(__instance);
 
-            // Extract shop cards
+            // MerchantRoom should have a MerchantInventory
+            var inventory = traverse.Field("_inventory")?.GetValue<object>()
+                ?? traverse.Property("Inventory")?.GetValue<object>();
+
             var shopCards = new List<ShopItem>();
-            var cards = traverse.Field("shopCards")?.GetValue<object>();
-            if (cards is System.Collections.IEnumerable cardEnum)
-            {
-                foreach (var item in cardEnum)
-                {
-                    var itemTraverse = Traverse.Create(item);
-                    var cardInfo = GameStateApi.ExtractCardInfo(
-                        itemTraverse.Field("card")?.GetValue<object>() ?? item
-                    );
-                    var price = itemTraverse.Field("price")?.GetValue<int>() ?? 0;
-
-                    shopCards.Add(new ShopItem
-                    {
-                        Card = cardInfo,
-                        Price = price,
-                    });
-                }
-            }
-
-            // Extract shop relics
             var shopRelics = new List<ShopRelicItem>();
-            var relics = traverse.Field("shopRelics")?.GetValue<object>();
-            if (relics is System.Collections.IEnumerable relicEnum)
-            {
-                foreach (var item in relicEnum)
-                {
-                    var itemTraverse = Traverse.Create(item);
-                    var relicInfo = GameStateApi.ExtractRelicInfo(
-                        itemTraverse.Field("relic")?.GetValue<object>() ?? item
-                    );
-                    var price = itemTraverse.Field("price")?.GetValue<int>() ?? 0;
 
-                    shopRelics.Add(new ShopRelicItem
+            if (inventory != null)
+            {
+                var invTraverse = Traverse.Create(inventory);
+
+                // Extract card entries (MerchantCardEntry)
+                var cardEntries = invTraverse.Property("CardEntries")?.GetValue<object>()
+                    ?? invTraverse.Field("_cardEntries")?.GetValue<object>();
+                if (cardEntries is System.Collections.IEnumerable cardEnum)
+                {
+                    foreach (var entry in cardEnum)
                     {
-                        Relic = relicInfo,
-                        Price = price,
-                    });
+                        var entryTraverse = Traverse.Create(entry);
+                        var cardModel = entryTraverse.Property("CardModel")?.GetValue<object>()
+                            ?? entryTraverse.Field("_cardModel")?.GetValue<object>();
+                        var price = entryTraverse.Property("Price")?.GetValue<int>()
+                            ?? entryTraverse.Field("_price")?.GetValue<int>()
+                            ?? 0;
+
+                        if (cardModel != null)
+                        {
+                            shopCards.Add(new ShopItem
+                            {
+                                Card = GameStateApi.ExtractCardInfo(cardModel),
+                                Price = price,
+                            });
+                        }
+                    }
+                }
+
+                // Extract relic entries (MerchantRelicEntry)
+                var relicEntries = invTraverse.Property("RelicEntries")?.GetValue<object>()
+                    ?? invTraverse.Field("_relicEntries")?.GetValue<object>();
+                if (relicEntries is System.Collections.IEnumerable relicEnum)
+                {
+                    foreach (var entry in relicEnum)
+                    {
+                        var entryTraverse = Traverse.Create(entry);
+                        var relicModel = entryTraverse.Property("RelicModel")?.GetValue<object>()
+                            ?? entryTraverse.Field("_relicModel")?.GetValue<object>();
+                        var price = entryTraverse.Property("Price")?.GetValue<int>()
+                            ?? entryTraverse.Field("_price")?.GetValue<int>()
+                            ?? 0;
+
+                        if (relicModel != null)
+                        {
+                            shopRelics.Add(new ShopRelicItem
+                            {
+                                Relic = GameStateApi.ExtractRelicInfo(relicModel),
+                                Price = price,
+                            });
+                        }
+                    }
                 }
             }
 
@@ -112,14 +132,13 @@ public static class ShopPatch
     }
 
     /// <summary>
-    /// Postfix patch: fires when the shop screen is exited.
+    /// Postfix patch: fires when the merchant room is exited.
     /// Clears shop data and resets screen.
     ///
-    /// TARGET: The method that closes the shop UI.
-    /// Example: [HarmonyPatch(typeof(ShopScreen), "OnExit")]
+    /// TARGET: MerchantRoom.Exit(IRunState?)
     /// </summary>
-    // [HarmonyPatch(typeof(ShopScreen), "OnExit")]
-    // [HarmonyPostfix]
+    [HarmonyPatch("MegaCrit.Sts2.Core.Rooms.MerchantRoom", "Exit")]
+    [HarmonyPostfix]
     public static void OnShopExited(object __instance)
     {
         try

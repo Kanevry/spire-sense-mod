@@ -8,14 +8,17 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for in-game event encounters.
 /// Intercepts event start and choice selection.
 ///
-/// NOTE: The target class and method names are placeholders based on STS2
-/// decompiled patterns. These MUST be verified against actual game assemblies
-/// and updated as the game evolves during Early Access.
-///
-/// Known STS2 patterns from sts2-advisor/BetterSpire2:
-/// - Events present a narrative screen with multiple choice options
-/// - Each option has text and may be conditionally enabled/disabled
-/// - A callback fires when an option is selected
+/// STS2 classes (from sts2.dll decompilation):
+/// - EventModel (MegaCrit.Sts2.Core.Models) — abstract
+///   - BeginEvent(Player, bool) — starts event
+///   - GenerateInitialOptions() — generates options
+///   - CurrentOptions — current available options
+///   - IsFinished — event completed
+/// - EventRoom (MegaCrit.Sts2.Core.Rooms) — extends AbstractRoom
+///   - Enter(IRunState?, bool) — enters event room
+/// - NEventOptionButton (MegaCrit.Sts2.Core.Nodes.Events)
+///   - OnRelease() — button clicked (choice made)
+///   - Properties: Event, Option
 /// </summary>
 public static class EventPatch
 {
@@ -23,28 +26,28 @@ public static class EventPatch
     /// Postfix patch: fires when an event encounter starts.
     /// Captures event name, description, and available options.
     ///
-    /// TARGET: The method that displays the event UI.
-    /// This needs to be identified via decompilation of the game DLL.
-    /// Example: [HarmonyPatch(typeof(EventScreen), "ShowEvent")]
+    /// TARGET: EventModel.BeginEvent(Player, bool)
     /// </summary>
-    // [HarmonyPatch(typeof(EventScreen), "ShowEvent")]
-    // [HarmonyPostfix]
+    [HarmonyPatch("MegaCrit.Sts2.Core.Models.EventModel", "BeginEvent")]
+    [HarmonyPostfix]
     public static void OnEventStarted(object __instance)
     {
         try
         {
             var traverse = Traverse.Create(__instance);
-            var eventName = traverse.Field("eventName")?.GetValue<string>()
-                ?? traverse.Field("name")?.GetValue<string>()
-                ?? "Unknown Event";
-            var description = traverse.Field("description")?.GetValue<string>()
-                ?? traverse.Field("bodyText")?.GetValue<string>()
+
+            // EventModel has name/description via properties or type name
+            var eventName = traverse.Property("Name")?.GetValue<string>()
+                ?? traverse.Property("EventId")?.GetValue<string>()
+                ?? __instance.GetType().Name;
+            var description = traverse.Property("Description")?.GetValue<string>()
+                ?? traverse.Field("_description")?.GetValue<string>()
                 ?? "";
 
-            // Extract event options
+            // Extract event options from CurrentOptions
             var eventOptions = new List<EventOption>();
-            var options = traverse.Field("options")?.GetValue<object>()
-                ?? traverse.Field("choices")?.GetValue<object>();
+            var options = traverse.Property("CurrentOptions")?.GetValue<object>()
+                ?? traverse.Field("_currentOptions")?.GetValue<object>();
 
             if (options is System.Collections.IEnumerable enumerable)
             {
@@ -54,12 +57,15 @@ public static class EventPatch
                     var optTraverse = Traverse.Create(option);
                     eventOptions.Add(new EventOption
                     {
-                        Id = optTraverse.Field("id")?.GetValue<string>() ?? $"option_{index}",
-                        Text = optTraverse.Field("text")?.GetValue<string>()
-                            ?? optTraverse.Field("label")?.GetValue<string>()
+                        Id = optTraverse.Property("OptionId")?.GetValue<string>()
+                            ?? optTraverse.Field("_optionId")?.GetValue<string>()
+                            ?? $"option_{index}",
+                        Text = optTraverse.Property("Title")?.GetValue<string>()
+                            ?? optTraverse.Property("Text")?.GetValue<string>()
+                            ?? optTraverse.Field("_title")?.GetValue<string>()
                             ?? "",
-                        Enabled = optTraverse.Field("enabled")?.GetValue<bool>()
-                            ?? optTraverse.Field("isAvailable")?.GetValue<bool>()
+                        Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
+                            ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
                             ?? true,
                     });
                     index++;
@@ -90,27 +96,40 @@ public static class EventPatch
     /// Postfix patch: fires when the player selects an event option.
     /// Emits the chosen option for analytics tracking.
     ///
-    /// TARGET: The method called when a choice button is pressed.
-    /// Example: [HarmonyPatch(typeof(EventScreen), "OnChoiceSelected")]
+    /// TARGET: NEventOptionButton.OnRelease() — the button press handler
+    /// Access .Event and .Option properties to identify which event/option was chosen.
     /// </summary>
-    // [HarmonyPatch(typeof(EventScreen), "OnChoiceSelected")]
-    // [HarmonyPostfix]
-    public static void OnEventChoiceMade(object __instance, int choiceIndex)
+    [HarmonyPatch("MegaCrit.Sts2.Core.Nodes.Events.NEventOptionButton", "OnRelease")]
+    [HarmonyPostfix]
+    public static void OnEventChoiceMade(object __instance)
     {
         try
         {
-            var currentOptions = Plugin.StateTracker?.GetCurrentState().EventOptions;
-            var chosenOption = currentOptions != null && choiceIndex >= 0 && choiceIndex < currentOptions.Count
-                ? currentOptions[choiceIndex]
-                : null;
+            var traverse = Traverse.Create(__instance);
+
+            // NEventOptionButton has Event and Option properties
+            var eventObj = traverse.Property("Event")?.GetValue<object>();
+            var optionObj = traverse.Property("Option")?.GetValue<object>();
+
+            string? choiceId = null;
+            string? choiceText = null;
+
+            if (optionObj != null)
+            {
+                var optTraverse = Traverse.Create(optionObj);
+                choiceId = optTraverse.Property("OptionId")?.GetValue<string>()
+                    ?? optTraverse.Field("_optionId")?.GetValue<string>();
+                choiceText = optTraverse.Property("Title")?.GetValue<string>()
+                    ?? optTraverse.Property("Text")?.GetValue<string>();
+            }
 
             Plugin.StateTracker?.EmitEvent(new GameEvent
             {
                 Type = "event_choice",
                 Data = new
                 {
-                    choiceIndex,
-                    option = chosenOption,
+                    choiceId = choiceId ?? "unknown",
+                    choiceName = choiceText ?? "unknown",
                 },
             });
 
@@ -120,7 +139,7 @@ public static class EventPatch
                 state.EventOptions = null;
             });
 
-            GD.Print($"[SpireSense] Event choice made: option {choiceIndex}");
+            GD.Print($"[SpireSense] Event choice made: {choiceId ?? "unknown"}");
         }
         catch (System.Exception ex)
         {

@@ -22,7 +22,7 @@ public class CombatStateSerializationTests
         var root = doc.RootElement;
 
         Assert.Equal(1, root.GetProperty("turn").GetInt32());
-        Assert.NotNull(root.GetProperty("player"));
+        Assert.Equal(JsonValueKind.Object, root.GetProperty("player").ValueKind);
         Assert.Equal(0, root.GetProperty("monsters").GetArrayLength());
         Assert.Equal(0, root.GetProperty("hand").GetArrayLength());
         Assert.Equal(0, root.GetProperty("drawPile").GetArrayLength());

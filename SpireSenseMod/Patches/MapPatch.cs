@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 using HarmonyLib;
 
@@ -7,8 +8,11 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for map/floor navigation.
 /// Tracks when the player moves to a new floor or selects a path.
 ///
-/// NOTE: Target classes are placeholders — uncomment [HarmonyPatch] when
-/// the actual STS2 MapManager class name is confirmed.
+/// STS2 classes (from sts2.dll decompilation):
+/// - RunManager (MegaCrit.Sts2.Core.Runs) — Singleton: RunManager.Instance
+///   - EnterMapCoord(MapCoord) — travel to map coordinate
+///   - EnterMapCoordInternal(MapCoord, AbstractRoom?, bool) — internal travel
+/// - RunState has CurrentActIndex, ActFloor, TotalFloor, CurrentRoom, Map
 /// </summary>
 public static class MapPatch
 {
@@ -16,30 +20,65 @@ public static class MapPatch
     /// Postfix: Player moves to a new floor.
     /// Extracts the current node info, updates floor/screen,
     /// and rebuilds the full map snapshot for the overlay.
+    ///
+    /// TARGET: RunManager.EnterMapCoord(MapCoord)
     /// </summary>
-    // [HarmonyPatch(typeof(MapManager), "TravelToNode")]
-    // [HarmonyPostfix]
-    public static void OnFloorChanged(object __instance, object node)
+    [HarmonyPatch("MegaCrit.Sts2.Core.Runs.RunManager", "EnterMapCoord")]
+    [HarmonyPostfix]
+    public static void OnFloorChanged(object __instance, object coord)
     {
         try
         {
-            var traverse = Traverse.Create(node);
-            var floor = traverse.Field("y")?.GetValue<int>() ?? 0;
-            var nodeType = traverse.Field("type")?.GetValue<string>() ?? "monster";
+            // coord is MapCoord — extract position
+            var coordTraverse = Traverse.Create(coord);
+            var x = coordTraverse.Field("X")?.GetValue<int>()
+                ?? coordTraverse.Property("X")?.GetValue<int>()
+                ?? 0;
+            var y = coordTraverse.Field("Y")?.GetValue<int>()
+                ?? coordTraverse.Property("Y")?.GetValue<int>()
+                ?? 0;
 
-            // Extract the full map from the manager instance.
-            // __instance is expected to be the MapManager (or equivalent).
-            // Field names are placeholders — adjust once STS2 internals are confirmed.
-            var mapTraverse = Traverse.Create(__instance);
-            var mapData = mapTraverse.Field("mapData")?.GetValue<object>()
-                ?? mapTraverse.Field("map")?.GetValue<object>()
-                ?? mapTraverse.Field("currentMap")?.GetValue<object>();
-            var mapNodes = mapData != null ? GameStateApi.ExtractMapNodes(mapData) : new List<MapNode>();
+            // Get RunState from RunManager to extract floor and room type
+            var rmTraverse = Traverse.Create(__instance);
+            var runState = rmTraverse.Field("_runState")?.GetValue<object>()
+                ?? rmTraverse.Property("RunState")?.GetValue<object>();
+
+            var floor = y;
+            var nodeType = "monster";
+
+            if (runState != null)
+            {
+                var rsTraverse = Traverse.Create(runState);
+                floor = rsTraverse.Property("TotalFloor")?.GetValue<int>()
+                    ?? rsTraverse.Property("ActFloor")?.GetValue<int>()
+                    ?? y;
+
+                // Get current room type
+                var currentRoom = rsTraverse.Property("CurrentRoom")?.GetValue<object>();
+                if (currentRoom != null)
+                {
+                    var roomType = Traverse.Create(currentRoom).Property("RoomType")?.GetValue<object>();
+                    nodeType = roomType?.ToString()?.ToLowerInvariant() ?? "monster";
+                }
+            }
+
+            // Extract the full map from RunState
+            var mapNodes = new List<MapNode>();
+            if (runState != null)
+            {
+                var rsTraverse = Traverse.Create(runState);
+                var mapData = rsTraverse.Property("Map")?.GetValue<object>()
+                    ?? rsTraverse.Field("_map")?.GetValue<object>();
+                if (mapData != null)
+                {
+                    mapNodes = GameStateApi.ExtractMapNodes(mapData);
+                }
+            }
 
             // Mark the current node as visited in the extracted snapshot
             foreach (var mn in mapNodes)
             {
-                if (mn.X == (traverse.Field("x")?.GetValue<int>() ?? -1) && mn.Y == floor)
+                if (mn.X == x && mn.Y == y)
                 {
                     mn.Visited = true;
                 }
@@ -54,9 +93,9 @@ public static class MapPatch
 
             var currentNode = new MapNode
             {
-                X = traverse.Field("x")?.GetValue<int>() ?? 0,
-                Y = floor,
-                Type = nodeType.ToLowerInvariant(),
+                X = x,
+                Y = y,
+                Type = nodeType,
                 Visited = true,
             };
 

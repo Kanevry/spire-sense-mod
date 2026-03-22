@@ -6,39 +6,42 @@ namespace SpireSenseMod.Patches;
 
 /// <summary>
 /// Harmony patches for rest site interactions.
-/// Intercepts rest site entry and choice selection (heal, upgrade, etc.).
+/// Intercepts rest site entry and choice selection (heal, smith, dig, etc.).
 ///
-/// NOTE: The target class and method names are placeholders based on STS2
-/// decompiled patterns. These MUST be verified against actual game assemblies
-/// and updated as the game evolves during Early Access.
-///
-/// Known STS2 patterns from sts2-advisor/BetterSpire2:
-/// - Rest sites present options like Rest (heal), Smith (upgrade), Recall, Lift, Toke, Dig
-/// - Available options depend on relics and game state
-/// - A callback fires when an option is selected
+/// STS2 classes (from sts2.dll decompilation):
+/// - RestSiteRoom (MegaCrit.Sts2.Core.Rooms) — extends AbstractRoom
+///   - Enter(IRunState?, bool) — enters rest site
+///   - Exit(IRunState?) — exits rest site
+/// - RestSiteOption (MegaCrit.Sts2.Core.Entities.RestSite) — abstract
+///   - OnSelect() — async, executes the option
+///   - Properties: OptionId, IsEnabled, Title, Description
+///   - Subclasses: HealRestSiteOption, SmithRestSiteOption, DigRestSiteOption,
+///     CookRestSiteOption, LiftRestSiteOption, MendRestSiteOption,
+///     CloneRestSiteOption, HatchRestSiteOption
+///   - static Generate(Player) — generates available options
+/// - NRestSiteButton (MegaCrit.Sts2.Core.Nodes.RestSite)
+///   - SelectOption(RestSiteOption) — async, selects option
 /// </summary>
 public static class RestPatch
 {
     /// <summary>
-    /// Postfix patch: fires when a rest site is entered.
+    /// Postfix patch: fires when a rest site room is entered.
     /// Captures available rest options based on relics and game state.
     ///
-    /// TARGET: The method that displays the rest site UI.
-    /// This needs to be identified via decompilation of the game DLL.
-    /// Example: [HarmonyPatch(typeof(RestScreen), "OnEnter")]
+    /// TARGET: RestSiteRoom.Enter(IRunState?, bool)
     /// </summary>
-    // [HarmonyPatch(typeof(RestScreen), "OnEnter")]
-    // [HarmonyPostfix]
+    [HarmonyPatch("MegaCrit.Sts2.Core.Rooms.RestSiteRoom", "Enter")]
+    [HarmonyPostfix]
     public static void OnRestEntered(object __instance)
     {
         try
         {
             var traverse = Traverse.Create(__instance);
 
-            // Extract available rest options
+            // RestSiteRoom may store available options or we need to get them from the room
             var restOptions = new List<RestOption>();
-            var options = traverse.Field("options")?.GetValue<object>()
-                ?? traverse.Field("restOptions")?.GetValue<object>();
+            var options = traverse.Property("Options")?.GetValue<object>()
+                ?? traverse.Field("_options")?.GetValue<object>();
 
             if (options is System.Collections.IEnumerable enumerable)
             {
@@ -47,15 +50,17 @@ public static class RestPatch
                     var optTraverse = Traverse.Create(option);
                     restOptions.Add(new RestOption
                     {
-                        Id = optTraverse.Field("id")?.GetValue<string>()
-                            ?? optTraverse.Field("type")?.GetValue<string>()?.ToLowerInvariant()
+                        Id = optTraverse.Property("OptionId")?.GetValue<string>()
+                            ?? optTraverse.Field("_optionId")?.GetValue<string>()
+                            ?? option.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant(),
+                        Name = optTraverse.Property("Title")?.GetValue<string>()
+                            ?? optTraverse.Field("_title")?.GetValue<string>()
+                            ?? option.GetType().Name.Replace("RestSiteOption", ""),
+                        Description = optTraverse.Property("Description")?.GetValue<string>()
+                            ?? optTraverse.Field("_description")?.GetValue<string>()
                             ?? "",
-                        Name = optTraverse.Field("name")?.GetValue<string>()
-                            ?? optTraverse.Field("label")?.GetValue<string>()
-                            ?? "",
-                        Description = optTraverse.Field("description")?.GetValue<string>() ?? "",
-                        Enabled = optTraverse.Field("enabled")?.GetValue<bool>()
-                            ?? optTraverse.Field("isAvailable")?.GetValue<bool>()
+                        Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
+                            ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
                             ?? true,
                     });
                 }
@@ -85,22 +90,22 @@ public static class RestPatch
     /// Postfix patch: fires when the player makes a rest site choice.
     /// Emits the chosen option for analytics tracking.
     ///
-    /// TARGET: The method called when a rest option is selected.
-    /// Example: [HarmonyPatch(typeof(RestScreen), "OnOptionSelected")]
+    /// TARGET: RestSiteOption.OnSelect() — the abstract method called when selected
+    /// __instance IS the RestSiteOption subclass, so we can read its properties directly.
     /// </summary>
-    // [HarmonyPatch(typeof(RestScreen), "OnOptionSelected")]
-    // [HarmonyPostfix]
-    public static void OnRestChoice(object __instance, object selectedOption)
+    [HarmonyPatch("MegaCrit.Sts2.Core.Entities.RestSite.RestSiteOption", "OnSelect")]
+    [HarmonyPostfix]
+    public static void OnRestChoice(object __instance)
     {
         try
         {
-            var optTraverse = Traverse.Create(selectedOption);
-            var choiceId = optTraverse.Field("id")?.GetValue<string>()
-                ?? optTraverse.Field("type")?.GetValue<string>()?.ToLowerInvariant()
-                ?? "unknown";
-            var choiceName = optTraverse.Field("name")?.GetValue<string>()
-                ?? optTraverse.Field("label")?.GetValue<string>()
-                ?? choiceId;
+            var optTraverse = Traverse.Create(__instance);
+            var choiceId = optTraverse.Property("OptionId")?.GetValue<string>()
+                ?? optTraverse.Field("_optionId")?.GetValue<string>()
+                ?? __instance.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant();
+            var choiceName = optTraverse.Property("Title")?.GetValue<string>()
+                ?? optTraverse.Field("_title")?.GetValue<string>()
+                ?? __instance.GetType().Name.Replace("RestSiteOption", "");
 
             Plugin.StateTracker?.EmitEvent(new GameEvent
             {

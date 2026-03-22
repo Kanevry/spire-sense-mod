@@ -10,7 +10,7 @@ public static class CharacterValidator
 {
     private static readonly HashSet<string> ValidCharacters = new()
     {
-        "ironclad", "silent", "defect", "regent", "necrobinder",
+        "ironclad", "silent", "defect", "regent", "necrobinder", "deprived",
     };
 
     public static string Validate(string? character)

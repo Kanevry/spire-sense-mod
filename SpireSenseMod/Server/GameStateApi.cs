@@ -8,15 +8,17 @@ namespace SpireSenseMod;
 /// Helper class to extract game state from STS2 game objects.
 /// Uses Harmony Traverse to access internal/private fields.
 ///
-/// NOTE: These methods reference STS2 game classes which are only available
-/// when compiled against the game's assemblies. The class names and method
-/// signatures may need adjustment as the game updates during Early Access.
+/// STS2 field naming conventions (from sts2.dll decompilation):
+/// - Private fields: _camelCase (e.g., _name, _description)
+/// - Properties: PascalCase (e.g., Name, Description, CardId)
+/// - Models: CardModel, RelicModel, PotionModel, MonsterModel
+/// - Creatures: Creature base with Name, CurrentHp, MaxHp, Block
 /// </summary>
 public static class GameStateApi
 {
     /// <summary>
-    /// Extract card info from a game card object.
-    /// Uses reflection via Traverse since card internals are not public.
+    /// Extract card info from a game CardModel object.
+    /// CardModel properties: CardId, Name, CardType, Rarity, EnergyCost, Description, IsUpgraded
     /// </summary>
     public static CardInfo ExtractCardInfo(object gameCard)
     {
@@ -26,17 +28,34 @@ public static class GameStateApi
 
             return new CardInfo
             {
-                Id = traverse.Field("id")?.GetValue<string>() ?? "",
-                Name = traverse.Field("name")?.GetValue<string>() ?? traverse.Property("Name")?.GetValue<string>() ?? "",
-                Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
-                    ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
-                    ?? "neutral",
-                Type = traverse.Field("type")?.GetValue<string>()?.ToLowerInvariant() ?? "attack",
-                Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
-                Cost = traverse.Field("cost")?.GetValue<int>() ?? 0,
-                CostUpgraded = traverse.Field("costUpgraded")?.GetValue<int>() ?? 0,
-                Description = traverse.Field("description")?.GetValue<string>() ?? "",
-                Upgraded = traverse.Field("upgraded")?.GetValue<bool>() ?? false,
+                Id = traverse.Property("CardId")?.GetValue<string>()
+                    ?? traverse.Field("_cardId")?.GetValue<string>()
+                    ?? "",
+                Name = traverse.Property("Name")?.GetValue<string>()
+                    ?? traverse.Field("_name")?.GetValue<string>()
+                    ?? "",
+                Character = (traverse.Property("CharacterId")?.GetValue<string>()
+                    ?? traverse.Field("_characterId")?.GetValue<string>()
+                    ?? traverse.Property("Color")?.GetValue<object>()?.ToString()
+                    ?? "neutral").ToLowerInvariant(),
+                Type = (traverse.Property("CardType")?.GetValue<object>()?.ToString()
+                    ?? traverse.Field("_cardType")?.GetValue<object>()?.ToString()
+                    ?? "Attack").ToLowerInvariant(),
+                Rarity = (traverse.Property("Rarity")?.GetValue<object>()?.ToString()
+                    ?? traverse.Field("_rarity")?.GetValue<object>()?.ToString()
+                    ?? "Common").ToLowerInvariant(),
+                Cost = traverse.Property("EnergyCost")?.GetValue<int>()
+                    ?? traverse.Field("_energyCost")?.GetValue<int>()
+                    ?? 0,
+                CostUpgraded = traverse.Property("UpgradedEnergyCost")?.GetValue<int>()
+                    ?? traverse.Field("_upgradedEnergyCost")?.GetValue<int>()
+                    ?? 0,
+                Description = traverse.Property("Description")?.GetValue<string>()
+                    ?? traverse.Field("_description")?.GetValue<string>()
+                    ?? "",
+                Upgraded = traverse.Property("IsUpgraded")?.GetValue<bool>()
+                    ?? traverse.Field("_isUpgraded")?.GetValue<bool>()
+                    ?? false,
                 Tags = new List<string>(),
             };
         }
@@ -49,7 +68,7 @@ public static class GameStateApi
 
     /// <summary>
     /// Extract a list of cards from a game collection (hand, draw pile, discard pile, etc.).
-    /// The source should be a Traverse pointing to a collection of card objects.
+    /// The source should be a Traverse pointing to a CardPile or IEnumerable of CardModel.
     /// </summary>
     public static List<CardInfo> ExtractCards(Traverse? source)
     {
@@ -76,7 +95,8 @@ public static class GameStateApi
     }
 
     /// <summary>
-    /// Extract relic info from a game relic object.
+    /// Extract relic info from a game RelicModel object.
+    /// RelicModel properties: RelicId, Name, CharacterId, Rarity, Description
     /// </summary>
     public static RelicInfo ExtractRelicInfo(object gameRelic)
     {
@@ -86,13 +106,22 @@ public static class GameStateApi
 
             return new RelicInfo
             {
-                Id = traverse.Field("id")?.GetValue<string>() ?? "",
-                Name = traverse.Field("name")?.GetValue<string>() ?? "",
-                Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
-                    ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
-                    ?? "neutral",
-                Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
-                Description = traverse.Field("description")?.GetValue<string>() ?? "",
+                Id = traverse.Property("RelicId")?.GetValue<string>()
+                    ?? traverse.Field("_relicId")?.GetValue<string>()
+                    ?? "",
+                Name = traverse.Property("Name")?.GetValue<string>()
+                    ?? traverse.Field("_name")?.GetValue<string>()
+                    ?? "",
+                Character = (traverse.Property("CharacterId")?.GetValue<string>()
+                    ?? traverse.Field("_characterId")?.GetValue<string>()
+                    ?? traverse.Property("Color")?.GetValue<object>()?.ToString()
+                    ?? "neutral").ToLowerInvariant(),
+                Rarity = (traverse.Property("Rarity")?.GetValue<object>()?.ToString()
+                    ?? traverse.Field("_rarity")?.GetValue<object>()?.ToString()
+                    ?? "Common").ToLowerInvariant(),
+                Description = traverse.Property("Description")?.GetValue<string>()
+                    ?? traverse.Field("_description")?.GetValue<string>()
+                    ?? "",
                 Tags = new List<string>(),
             };
         }
@@ -104,8 +133,9 @@ public static class GameStateApi
     }
 
     /// <summary>
-    /// Extract monster info from a game creature/monster object.
-    /// Includes power traversal and intent damage value.
+    /// Extract monster info from a game Creature object.
+    /// Creature properties: Name, CurrentHp, MaxHp, Block
+    /// MonsterModel extends Creature with intent data.
     /// </summary>
     public static MonsterInfo ExtractMonsterInfo(object gameMonster)
     {
@@ -113,23 +143,37 @@ public static class GameStateApi
 
         var info = new MonsterInfo
         {
-            Id = traverse.Field("id")?.GetValue<string>() ?? "",
-            Name = traverse.Field("name")?.GetValue<string>() ?? "",
-            Hp = traverse.Field("currentHp")?.GetValue<int>() ?? traverse.Field("hp")?.GetValue<int>() ?? 0,
-            MaxHp = traverse.Field("maxHp")?.GetValue<int>() ?? 0,
-            Block = traverse.Field("block")?.GetValue<int>() ?? 0,
-            Intent = traverse.Field("intent")?.GetValue<string>()?.ToLowerInvariant() ?? "unknown",
-            IntentDamage = traverse.Field("intentDmg")?.GetValue<int>()
-                ?? traverse.Field("intentDamage")?.GetValue<int>()
+            Id = traverse.Property("MonsterId")?.GetValue<string>()
+                ?? traverse.Property("CreatureId")?.GetValue<string>()
+                ?? traverse.Field("_monsterId")?.GetValue<string>()
+                ?? "",
+            Name = traverse.Property("Name")?.GetValue<string>()
+                ?? traverse.Field("_name")?.GetValue<string>()
+                ?? "",
+            Hp = traverse.Property("CurrentHp")?.GetValue<int>()
+                ?? traverse.Field("_currentHp")?.GetValue<int>()
                 ?? 0,
-            Powers = ExtractPowers(traverse.Field("powers")),
+            MaxHp = traverse.Property("MaxHp")?.GetValue<int>()
+                ?? traverse.Field("_maxHp")?.GetValue<int>()
+                ?? 0,
+            Block = traverse.Property("Block")?.GetValue<int>()
+                ?? traverse.Field("_block")?.GetValue<int>()
+                ?? 0,
+            Intent = (traverse.Property("Intent")?.GetValue<object>()?.ToString()
+                ?? traverse.Field("_intent")?.GetValue<object>()?.ToString()
+                ?? "unknown").ToLowerInvariant(),
+            IntentDamage = traverse.Property("IntentDamage")?.GetValue<int>()
+                ?? traverse.Field("_intentDamage")?.GetValue<int>()
+                ?? 0,
+            Powers = ExtractPowers(traverse.Property("Powers") ?? traverse.Field("_powers")),
         };
 
         return info;
     }
 
     /// <summary>
-    /// Extract powers/buffs from a game object's powers collection.
+    /// Extract powers/buffs from a creature's powers collection.
+    /// Power properties: PowerId, Name, Amount/StackAmount
     /// </summary>
     public static List<PowerInfo> ExtractPowers(Traverse? source)
     {
@@ -146,9 +190,16 @@ public static class GameStateApi
                     var pt = Traverse.Create(power);
                     powers.Add(new PowerInfo
                     {
-                        Id = pt.Field("id")?.GetValue<string>() ?? pt.Field("powerId")?.GetValue<string>() ?? "",
-                        Name = pt.Field("name")?.GetValue<string>() ?? "",
-                        Amount = pt.Field("amount")?.GetValue<int>() ?? pt.Field("stackAmount")?.GetValue<int>() ?? 0,
+                        Id = pt.Property("PowerId")?.GetValue<string>()
+                            ?? pt.Field("_powerId")?.GetValue<string>()
+                            ?? "",
+                        Name = pt.Property("Name")?.GetValue<string>()
+                            ?? pt.Field("_name")?.GetValue<string>()
+                            ?? "",
+                        Amount = pt.Property("Amount")?.GetValue<int>()
+                            ?? pt.Property("StackAmount")?.GetValue<int>()
+                            ?? pt.Field("_amount")?.GetValue<int>()
+                            ?? 0,
                     });
                 }
             }
@@ -162,7 +213,9 @@ public static class GameStateApi
     }
 
     /// <summary>
-    /// Extract potions from a game object's potions collection.
+    /// Extract potions from a player's potion slots.
+    /// Player.PotionSlots is an array/list of PotionModel.
+    /// PotionModel properties: PotionId, Name, Description
     /// </summary>
     public static List<PotionInfo> ExtractPotions(Traverse? source)
     {
@@ -176,13 +229,22 @@ public static class GameStateApi
             {
                 foreach (var potion in enumerable)
                 {
+                    if (potion == null) continue; // Empty potion slot
                     var pt = Traverse.Create(potion);
                     potions.Add(new PotionInfo
                     {
-                        Id = pt.Field("id")?.GetValue<string>() ?? pt.Field("potionId")?.GetValue<string>() ?? "",
-                        Name = pt.Field("name")?.GetValue<string>() ?? "",
-                        Description = pt.Field("description")?.GetValue<string>() ?? "",
-                        CanUse = pt.Field("canUse")?.GetValue<bool>() ?? true,
+                        Id = pt.Property("PotionId")?.GetValue<string>()
+                            ?? pt.Field("_potionId")?.GetValue<string>()
+                            ?? "",
+                        Name = pt.Property("Name")?.GetValue<string>()
+                            ?? pt.Field("_name")?.GetValue<string>()
+                            ?? "",
+                        Description = pt.Property("Description")?.GetValue<string>()
+                            ?? pt.Field("_description")?.GetValue<string>()
+                            ?? "",
+                        CanUse = pt.Property("CanUse")?.GetValue<bool>()
+                            ?? pt.Field("_canUse")?.GetValue<bool>()
+                            ?? true,
                     });
                 }
             }
@@ -196,10 +258,9 @@ public static class GameStateApi
     }
 
     /// <summary>
-    /// Extract all map nodes from the game's map data object.
-    /// Uses Traverse to iterate the node collection and extract position, type, connections.
-    ///
-    /// NOTE: Field names are placeholders — actual names depend on STS2's map classes.
+    /// Extract all map nodes from the game's ActMap data object.
+    /// ActMap contains map points with MapPointType and connections.
+    /// MapPoint has Coord (MapCoord with X, Y), Type (MapPointType), connections.
     /// </summary>
     public static List<MapNode> ExtractMapNodes(object mapData)
     {
@@ -209,39 +270,71 @@ public static class GameStateApi
         try
         {
             var traverse = Traverse.Create(mapData);
-            var nodeCollection = traverse.Field("nodes")?.GetValue<object>();
+            // ActMap has MapPoints or similar collection
+            var nodeCollection = traverse.Property("MapPoints")?.GetValue<object>()
+                ?? traverse.Field("_mapPoints")?.GetValue<object>()
+                ?? traverse.Property("Points")?.GetValue<object>()
+                ?? traverse.Field("_points")?.GetValue<object>();
             if (nodeCollection is not System.Collections.IEnumerable enumerable) return nodes;
 
             foreach (var node in enumerable)
             {
                 var nt = Traverse.Create(node);
 
-                // Extract connection indices from the node's edges/children
+                // MapPoint has Coord (MapCoord), Type (MapPointType)
+                var coord = nt.Property("Coord")?.GetValue<object>()
+                    ?? nt.Field("_coord")?.GetValue<object>();
+                int x = 0, y = 0;
+                if (coord != null)
+                {
+                    var ct = Traverse.Create(coord);
+                    x = ct.Property("X")?.GetValue<int>() ?? ct.Field("X")?.GetValue<int>() ?? 0;
+                    y = ct.Property("Y")?.GetValue<int>() ?? ct.Field("Y")?.GetValue<int>() ?? 0;
+                }
+
+                // MapPointType enum: Unassigned, Unknown, Shop, Treasure, RestSite, Monster, Elite, Boss, Ancient
+                var nodeType = (nt.Property("Type")?.GetValue<object>()?.ToString()
+                    ?? nt.Field("_type")?.GetValue<object>()?.ToString()
+                    ?? "Monster").ToLowerInvariant();
+
+                // Extract connection indices from the node's children/connections
                 var connections = new List<int>();
-                var edgeCollection = nt.Field("connections")?.GetValue<object>()
-                    ?? nt.Field("edges")?.GetValue<object>()
-                    ?? nt.Field("children")?.GetValue<object>();
+                var edgeCollection = nt.Property("Children")?.GetValue<object>()
+                    ?? nt.Field("_children")?.GetValue<object>()
+                    ?? nt.Property("Connections")?.GetValue<object>();
                 if (edgeCollection is System.Collections.IEnumerable edgeEnum)
                 {
                     foreach (var edge in edgeEnum)
                     {
+                        // Connection might be another MapPoint or a MapCoord
                         var et = Traverse.Create(edge);
-                        var idx = et.Field("index")?.GetValue<int>()
-                            ?? et.Field("targetY")?.GetValue<int>()
-                            ?? -1;
-                        if (idx >= 0) connections.Add(idx);
+                        var edgeCoord = et.Property("Coord")?.GetValue<object>();
+                        if (edgeCoord != null)
+                        {
+                            var ect = Traverse.Create(edgeCoord);
+                            var edgeY = ect.Property("Y")?.GetValue<int>() ?? ect.Field("Y")?.GetValue<int>() ?? -1;
+                            if (edgeY >= 0) connections.Add(edgeY);
+                        }
+                        else
+                        {
+                            // Direct index
+                            var idx = et.Property("Y")?.GetValue<int>() ?? et.Field("Y")?.GetValue<int>() ?? -1;
+                            if (idx >= 0) connections.Add(idx);
+                        }
                     }
                 }
 
+                var visited = nt.Property("IsVisited")?.GetValue<bool>()
+                    ?? nt.Field("_isVisited")?.GetValue<bool>()
+                    ?? false;
+
                 nodes.Add(new MapNode
                 {
-                    X = nt.Field("x")?.GetValue<int>() ?? 0,
-                    Y = nt.Field("y")?.GetValue<int>() ?? 0,
-                    Type = (nt.Field("type")?.GetValue<string>()
-                        ?? nt.Field("roomType")?.GetValue<string>()
-                        ?? "monster").ToLowerInvariant(),
+                    X = x,
+                    Y = y,
+                    Type = nodeType,
                     Connections = connections,
-                    Visited = nt.Field("visited")?.GetValue<bool>() ?? false,
+                    Visited = visited,
                 });
             }
         }
@@ -254,7 +347,8 @@ public static class GameStateApi
     }
 
     /// <summary>
-    /// Extract player state from the game's player/character object.
+    /// Extract player state from the game's Player object.
+    /// Player properties: CurrentHp, MaxHp, Block, MaxEnergy, Gold, Deck, Relics, PotionSlots
     /// </summary>
     public static PlayerState ExtractPlayerState(object gamePlayer)
     {
@@ -262,14 +356,26 @@ public static class GameStateApi
 
         return new PlayerState
         {
-            Hp = traverse.Field("currentHp")?.GetValue<int>() ?? traverse.Field("hp")?.GetValue<int>() ?? 0,
-            MaxHp = traverse.Field("maxHp")?.GetValue<int>() ?? 0,
-            Block = traverse.Field("block")?.GetValue<int>() ?? 0,
-            Energy = traverse.Field("energy")?.GetValue<int>() ?? 0,
-            MaxEnergy = traverse.Field("maxEnergy")?.GetValue<int>() ?? 3,
-            Gold = traverse.Field("gold")?.GetValue<int>() ?? 0,
-            Powers = ExtractPowers(traverse.Field("powers")),
-            Potions = ExtractPotions(traverse.Field("potions")),
+            Hp = traverse.Property("CurrentHp")?.GetValue<int>()
+                ?? traverse.Field("_currentHp")?.GetValue<int>()
+                ?? 0,
+            MaxHp = traverse.Property("MaxHp")?.GetValue<int>()
+                ?? traverse.Field("_maxHp")?.GetValue<int>()
+                ?? 0,
+            Block = traverse.Property("Block")?.GetValue<int>()
+                ?? traverse.Field("_block")?.GetValue<int>()
+                ?? 0,
+            Energy = traverse.Property("Energy")?.GetValue<int>()
+                ?? traverse.Field("_energy")?.GetValue<int>()
+                ?? 0,
+            MaxEnergy = traverse.Property("MaxEnergy")?.GetValue<int>()
+                ?? traverse.Field("_maxEnergy")?.GetValue<int>()
+                ?? 3,
+            Gold = traverse.Property("Gold")?.GetValue<int>()
+                ?? traverse.Field("_gold")?.GetValue<int>()
+                ?? 0,
+            Powers = ExtractPowers(traverse.Property("Powers") ?? traverse.Field("_powers")),
+            Potions = ExtractPotions(traverse.Property("PotionSlots") ?? traverse.Field("_potionSlots")),
         };
     }
 }

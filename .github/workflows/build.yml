@@ -30,8 +30,15 @@ jobs:
       - name: Build tests
         run: dotnet build SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-restore
 
-      - name: Run tests
-        run: dotnet test SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-build --verbosity normal
+      - name: Run tests with coverage
+        run: dotnet test SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: SpireSenseMod.Tests/TestResults/**/coverage.cobertura.xml
 
   # Main build requires Godot.NET.Sdk (resolved from nuget.org)
   build:

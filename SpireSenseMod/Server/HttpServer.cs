@@ -123,6 +123,15 @@ public class HttpServer : IDisposable
                 case "/api/combat":
                     HandleGetCombat(response);
                     break;
+                case "/api/relics":
+                    HandleGetRelics(response);
+                    break;
+                case "/api/map":
+                    HandleGetMap(response);
+                    break;
+                case "/api/events":
+                    HandleGetEvents(request, response);
+                    break;
                 default:
                     HandleNotFound(response);
                     break;
@@ -180,6 +189,31 @@ public class HttpServer : IDisposable
         SendJson(response, state.Combat);
     }
 
+    private void HandleGetRelics(HttpListenerResponse response)
+    {
+        var state = _stateTracker.GetCurrentState();
+        SendJson(response, new { relics = state.Relics, count = state.Relics.Count });
+    }
+
+    private void HandleGetMap(HttpListenerResponse response)
+    {
+        var state = _stateTracker.GetCurrentState();
+        SendJson(response, new { map = state.Map, currentFloor = state.Floor });
+    }
+
+    private void HandleGetEvents(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var sinceParam = request.QueryString["since"];
+        long since = 0;
+        if (!string.IsNullOrEmpty(sinceParam))
+        {
+            long.TryParse(sinceParam, out since);
+        }
+
+        var events = _stateTracker.GetEventsSince(since);
+        SendJson(response, new { events, count = events.Count });
+    }
+
     private static void HandleNotFound(HttpListenerResponse response)
     {
         SendJson(response, new
@@ -192,6 +226,9 @@ public class HttpServer : IDisposable
                 "GET /api/version — Mod version info",
                 "GET /api/deck — Current deck",
                 "GET /api/combat — Current combat state",
+                "GET /api/relics — Current relic collection",
+                "GET /api/map — Current map state",
+                "GET /api/events?since={timestamp} — Buffered events since timestamp",
                 "WS /ws — WebSocket real-time events",
             },
         }, 404);

@@ -8,14 +8,10 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for the card reward screen.
 /// Intercepts when cards are offered and when the player picks/skips.
 ///
-/// NOTE: The target class and method names are placeholders based on STS2
-/// decompiled patterns. These MUST be verified against actual game assemblies
-/// and updated as the game evolves during Early Access.
-///
-/// Known STS2 patterns from sts2-advisor/BetterSpire2:
-/// - Card rewards are managed by a reward screen/panel class
-/// - Cards are presented as a list of selectable options
-/// - A callback fires when a card is selected or skipped
+/// STS2 classes (from sts2.dll decompilation):
+/// - NCardRewardSelectionScreen (MegaCrit.Sts2.Core.Nodes.Screens.CardSelection)
+///   - ShowScreen() — static, shows reward screen
+///   - SelectCard(NCardHolder) — player picks a card
 /// </summary>
 public static class CardRewardPatch
 {
@@ -23,18 +19,18 @@ public static class CardRewardPatch
     /// Postfix patch: fires when card rewards are displayed.
     /// Captures the offered cards and updates the state tracker.
     ///
-    /// TARGET: The method that populates the card reward UI.
-    /// This needs to be identified via decompilation of the game DLL.
-    /// Example: [HarmonyPatch(typeof(CardRewardScreen), "ShowRewards")]
+    /// TARGET: NCardRewardSelectionScreen.ShowScreen (static)
     /// </summary>
-    // [HarmonyPatch(typeof(CardRewardScreen), "ShowRewards")]
-    // [HarmonyPostfix]
+    [HarmonyPatch("MegaCrit.Sts2.Core.Nodes.Screens.CardSelection.NCardRewardSelectionScreen", "ShowScreen")]
+    [HarmonyPostfix]
     public static void OnCardRewardsShown(object __instance)
     {
         try
         {
             var traverse = Traverse.Create(__instance);
-            var cards = traverse.Field("rewardCards")?.GetValue<object>();
+            // STS2 uses CardCreationResult list passed to ShowScreen
+            var cards = traverse.Field("_options")?.GetValue<object>()
+                ?? traverse.Field("_cardHolders")?.GetValue<object>();
 
             if (cards == null) return;
 
@@ -45,7 +41,12 @@ public static class CardRewardPatch
             {
                 foreach (var card in enumerable)
                 {
-                    cardInfos.Add(GameStateApi.ExtractCardInfo(card));
+                    // Each holder may wrap a CardModel — try to extract it
+                    var holderTraverse = Traverse.Create(card);
+                    var cardModel = holderTraverse.Field("CardModel")?.GetValue<object>()
+                        ?? holderTraverse.Property("CardModel")?.GetValue<object>()
+                        ?? card;
+                    cardInfos.Add(GameStateApi.ExtractCardInfo(cardModel));
                 }
             }
 
@@ -70,14 +71,22 @@ public static class CardRewardPatch
 
     /// <summary>
     /// Postfix patch: fires when a card is picked from rewards.
+    ///
+    /// TARGET: NCardRewardSelectionScreen.SelectCard(NCardHolder)
     /// </summary>
-    // [HarmonyPatch(typeof(CardRewardScreen), "OnCardSelected")]
-    // [HarmonyPostfix]
-    public static void OnCardPicked(object __instance, object selectedCard)
+    [HarmonyPatch("MegaCrit.Sts2.Core.Nodes.Screens.CardSelection.NCardRewardSelectionScreen", "SelectCard")]
+    [HarmonyPostfix]
+    public static void OnCardPicked(object __instance, object cardHolder)
     {
         try
         {
-            var cardInfo = GameStateApi.ExtractCardInfo(selectedCard);
+            // cardHolder is NCardHolder — extract the CardModel from it
+            var holderTraverse = Traverse.Create(cardHolder);
+            var cardModel = holderTraverse.Field("CardModel")?.GetValue<object>()
+                ?? holderTraverse.Property("CardModel")?.GetValue<object>()
+                ?? cardHolder;
+
+            var cardInfo = GameStateApi.ExtractCardInfo(cardModel);
             var alternatives = Plugin.StateTracker?.GetCurrentState().CardRewards ?? new List<CardInfo>();
 
             Plugin.StateTracker?.EmitEvent(new GameEvent

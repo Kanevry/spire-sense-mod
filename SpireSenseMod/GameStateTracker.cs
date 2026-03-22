@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace SpireSenseMod;
@@ -13,6 +14,10 @@ public class GameStateTracker
     private readonly object _lock = new();
     private GameState _currentState = new();
     private string _serializedState = "{}";
+
+    private readonly object _eventLock = new();
+    private readonly Queue<BufferedEvent> _eventBuffer = new();
+    private const int MaxEventBufferSize = 100;
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -73,7 +78,49 @@ public class GameStateTracker
         {
             gameEvent.SerializedData = serializedData;
         }
+
+        // Automatically buffer all emitted events (except internal state_update noise)
+        if (gameEvent.Type != "state_update")
+        {
+            AddEvent(gameEvent.Type, gameEvent.Data);
+        }
+
         OnGameEvent?.Invoke(gameEvent);
+    }
+
+    /// <summary>
+    /// Add an event to the ring buffer. Thread-safe via dedicated lock.
+    /// Evicts the oldest entry when the buffer exceeds <see cref="MaxEventBufferSize"/>.
+    /// </summary>
+    public void AddEvent(string type, object? data)
+    {
+        var entry = new BufferedEvent
+        {
+            Type = type,
+            Data = data,
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        };
+
+        lock (_eventLock)
+        {
+            if (_eventBuffer.Count >= MaxEventBufferSize)
+            {
+                _eventBuffer.Dequeue();
+            }
+            _eventBuffer.Enqueue(entry);
+        }
+    }
+
+    /// <summary>
+    /// Return all buffered events with a timestamp strictly greater than <paramref name="sinceTimestamp"/>.
+    /// Returns a snapshot list — safe to iterate without holding the lock.
+    /// </summary>
+    public List<BufferedEvent> GetEventsSince(long sinceTimestamp)
+    {
+        lock (_eventLock)
+        {
+            return _eventBuffer.Where(e => e.Timestamp > sinceTimestamp).ToList();
+        }
     }
 
     public void SetScreen(string screen)

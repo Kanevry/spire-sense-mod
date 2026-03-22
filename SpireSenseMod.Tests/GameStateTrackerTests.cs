@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Threading;
 using SpireSenseMod;
 using Xunit;
 
@@ -239,7 +240,7 @@ public class GameStateTrackerTests
     }
 
     [Fact]
-    public void ConcurrentAccess_MultipleWritersAndReaders_NoExceptions()
+    public async Task ConcurrentAccess_MultipleWritersAndReaders_NoExceptions()
     {
         var tracker = new GameStateTracker();
         var exceptions = new List<Exception>();
@@ -289,15 +290,17 @@ public class GameStateTrackerTests
             }));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         Assert.Empty(exceptions);
     }
 
     [Fact]
-    public void ConcurrentAccess_SetState_AlwaysConsistent()
+    public async Task ConcurrentAccess_SetState_AlwaysConsistent()
     {
         var tracker = new GameStateTracker();
+        // Seed with an initial state so the serialized snapshot has all properties
+        tracker.SetState(new GameState { Screen = "init", Character = "init" });
         var inconsistencies = 0;
         var tasks = new List<Task>();
 
@@ -343,7 +346,7 @@ public class GameStateTrackerTests
             }));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
 
         Assert.Equal(0, inconsistencies);
     }
@@ -397,5 +400,246 @@ public class GameStateTrackerTests
         Assert.Equal("state_update", events1[0]);
         Assert.Equal("state_update", events1[1]);
         Assert.Equal("custom", events1[2]);
+    }
+
+    // ─── Event Ring Buffer Tests ───────────────────────────────────────
+
+    [Fact]
+    public void AddEvent_StoresEventInBuffer()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.AddEvent("card_played", new { card = "strike" });
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Single(events);
+        Assert.Equal("card_played", events[0].Type);
+        Assert.True(events[0].Timestamp > 0);
+    }
+
+    [Fact]
+    public void AddEvent_NullData_Allowed()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.AddEvent("turn_end", null);
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Single(events);
+        Assert.Equal("turn_end", events[0].Type);
+        Assert.Null(events[0].Data);
+    }
+
+    [Fact]
+    public void GetEventsSince_FiltersOlderEvents()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.AddEvent("event_a", null);
+        var afterFirst = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        // Small delay to ensure distinct timestamps
+        Thread.Sleep(5);
+
+        tracker.AddEvent("event_b", null);
+
+        var events = tracker.GetEventsSince(afterFirst);
+        Assert.Single(events);
+        Assert.Equal("event_b", events[0].Type);
+    }
+
+    [Fact]
+    public void GetEventsSince_ZeroTimestamp_ReturnsAll()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.AddEvent("a", null);
+        tracker.AddEvent("b", null);
+        tracker.AddEvent("c", null);
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Equal(3, events.Count);
+    }
+
+    [Fact]
+    public void GetEventsSince_FutureTimestamp_ReturnsEmpty()
+    {
+        var tracker = new GameStateTracker();
+        tracker.AddEvent("a", null);
+
+        var futureTs = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeMilliseconds();
+        var events = tracker.GetEventsSince(futureTs);
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public void RingBuffer_EvictsOldestWhenFull()
+    {
+        var tracker = new GameStateTracker();
+
+        // Fill beyond the 100-event capacity
+        for (int i = 0; i < 110; i++)
+        {
+            tracker.AddEvent($"event_{i}", new { index = i });
+        }
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Equal(100, events.Count);
+
+        // Oldest events (0-9) should have been evicted
+        Assert.Equal("event_10", events[0].Type);
+        Assert.Equal("event_109", events[99].Type);
+    }
+
+    [Fact]
+    public void EmitEvent_AutoBuffersNonStateUpdateEvents()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.EmitEvent(new GameEvent { Type = "combat_start", Data = new { monsters = 3 } });
+        tracker.EmitEvent(new GameEvent { Type = "card_played", Data = new { card = "bash" } });
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Equal(2, events.Count);
+        Assert.Equal("combat_start", events[0].Type);
+        Assert.Equal("card_played", events[1].Type);
+    }
+
+    [Fact]
+    public void EmitEvent_StateUpdate_NotBuffered()
+    {
+        var tracker = new GameStateTracker();
+
+        // state_update events are internal noise and should not be buffered
+        tracker.EmitEvent(new GameEvent { Type = "state_update" });
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public void SetState_DoesNotBufferStateUpdateEvent()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.SetState(new GameState { Screen = "map" });
+
+        // SetState calls EmitEvent with type "state_update", which should be filtered out
+        var events = tracker.GetEventsSince(0);
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public void UpdateState_DoesNotBufferStateUpdateEvent()
+    {
+        var tracker = new GameStateTracker();
+
+        tracker.UpdateState(s => s.Floor = 5);
+
+        // UpdateState calls EmitEvent with type "state_update", which should be filtered out
+        var events = tracker.GetEventsSince(0);
+        Assert.Empty(events);
+    }
+
+    [Fact]
+    public void GetEventsSince_ReturnsSnapshotCopy()
+    {
+        var tracker = new GameStateTracker();
+        tracker.AddEvent("a", null);
+
+        var events1 = tracker.GetEventsSince(0);
+        tracker.AddEvent("b", null);
+        var events2 = tracker.GetEventsSince(0);
+
+        // events1 should not be affected by the second AddEvent call
+        Assert.Single(events1);
+        Assert.Equal(2, events2.Count);
+    }
+
+    [Fact]
+    public void EventBuffer_TimestampsAreMonotonicallyIncreasing()
+    {
+        var tracker = new GameStateTracker();
+
+        for (int i = 0; i < 10; i++)
+        {
+            tracker.AddEvent($"event_{i}", null);
+        }
+
+        var events = tracker.GetEventsSince(0);
+        for (int i = 1; i < events.Count; i++)
+        {
+            Assert.True(events[i].Timestamp >= events[i - 1].Timestamp,
+                $"Timestamp at index {i} ({events[i].Timestamp}) should be >= timestamp at index {i - 1} ({events[i - 1].Timestamp})");
+        }
+    }
+
+    [Fact]
+    public async Task EventBuffer_ConcurrentAccess_NoExceptions()
+    {
+        var tracker = new GameStateTracker();
+        var exceptions = new List<Exception>();
+        var tasks = new List<Task>();
+
+        // 5 writer tasks adding events
+        for (int i = 0; i < 5; i++)
+        {
+            var writerIndex = i;
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    for (int j = 0; j < 50; j++)
+                    {
+                        tracker.AddEvent($"writer_{writerIndex}_event_{j}", new { writerIndex, j });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lock (exceptions) { exceptions.Add(ex); }
+                }
+            }));
+        }
+
+        // 5 reader tasks querying events
+        for (int i = 0; i < 5; i++)
+        {
+            tasks.Add(Task.Run(() =>
+            {
+                try
+                {
+                    for (int j = 0; j < 50; j++)
+                    {
+                        var events = tracker.GetEventsSince(0);
+                        // Just ensure it returns a valid list
+                        Assert.NotNull(events);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lock (exceptions) { exceptions.Add(ex); }
+                }
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+        Assert.Empty(exceptions);
+    }
+
+    [Fact]
+    public void BufferedEvent_SerializesToJson()
+    {
+        var entry = new BufferedEvent
+        {
+            Type = "combat_start",
+            Data = new { monsters = 3 },
+            Timestamp = 1711000000000,
+        };
+
+        var json = JsonSerializer.Serialize(entry, JsonOptions);
+
+        Assert.Contains("\"type\":\"combat_start\"", json);
+        Assert.Contains("\"timestamp\":1711000000000", json);
+        Assert.Contains("\"data\":", json);
     }
 }

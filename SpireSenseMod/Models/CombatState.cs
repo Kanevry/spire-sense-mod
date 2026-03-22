@@ -191,3 +191,19 @@ public class RestOption
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
 }
+
+/// <summary>
+/// A buffered event entry for the ring buffer.
+/// Stores the event type, optional data, and a Unix millisecond timestamp.
+/// </summary>
+public class BufferedEvent
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "";
+
+    [JsonPropertyName("data")]
+    public object? Data { get; set; }
+
+    [JsonPropertyName("timestamp")]
+    public long Timestamp { get; set; }
+}

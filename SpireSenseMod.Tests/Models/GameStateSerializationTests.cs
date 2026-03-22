@@ -71,6 +71,7 @@ public class GameStateSerializationTests
         Assert.Null(state.ShopCards);
         Assert.Null(state.ShopRelics);
         Assert.Null(state.EventOptions);
+        Assert.Null(state.RestOptions);
     }
 
     [Fact]
@@ -119,6 +120,11 @@ public class GameStateSerializationTests
             {
                 new EventOption { Id = "opt1", Text = "Leave", Enabled = true },
             },
+            RestOptions = new()
+            {
+                new RestOption { Id = "rest", Name = "Rest", Description = "Heal 30% HP.", Enabled = true },
+                new RestOption { Id = "smith", Name = "Smith", Description = "Upgrade a card.", Enabled = false },
+            },
         };
 
         var json = JsonSerializer.Serialize(state, JsonOptions);
@@ -162,6 +168,14 @@ public class GameStateSerializationTests
         Assert.NotNull(deserialized.EventOptions);
         Assert.Single(deserialized.EventOptions!);
         Assert.Equal("Leave", deserialized.EventOptions[0].Text);
+
+        // RestOptions
+        Assert.NotNull(deserialized.RestOptions);
+        Assert.Equal(2, deserialized.RestOptions!.Count);
+        Assert.Equal("rest", deserialized.RestOptions[0].Id);
+        Assert.True(deserialized.RestOptions[0].Enabled);
+        Assert.Equal("smith", deserialized.RestOptions[1].Id);
+        Assert.False(deserialized.RestOptions[1].Enabled);
     }
 
     [Fact]
@@ -179,5 +193,6 @@ public class GameStateSerializationTests
         Assert.Equal(JsonValueKind.Null, root.GetProperty("shopCards").ValueKind);
         Assert.Equal(JsonValueKind.Null, root.GetProperty("shopRelics").ValueKind);
         Assert.Equal(JsonValueKind.Null, root.GetProperty("eventOptions").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("restOptions").ValueKind);
     }
 }
