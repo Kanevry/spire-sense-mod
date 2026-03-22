@@ -22,8 +22,15 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore SpireSenseMod/SpireSenseMod.csproj
 
+      - name: Check formatting
+        run: dotnet format --verify-no-changes SpireSenseMod/SpireSenseMod.csproj
+
       - name: Build
-        run: dotnet build SpireSenseMod/SpireSenseMod.csproj --configuration Release --no-restore
+        run: dotnet build -c Release /p:TreatWarningsAsErrors=true SpireSenseMod/SpireSenseMod.csproj --no-restore
+
+      - name: Test
+        if: hashFiles('SpireSenseMod.Tests/SpireSenseMod.Tests.csproj') != ''
+        run: dotnet test SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -44,12 +51,26 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: SpireSenseMod
-          path: release/
+          path: artifact/
+
+      - name: Get version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release archive
+        run: |
+          mkdir -p SpireSense
+          cp artifact/SpireSenseMod/bin/Release/net9.0/SpireSenseMod.dll SpireSense/
+          cp artifact/SpireSenseMod/mod_manifest.json SpireSense/
+          zip -r "SpireSense-${{ steps.version.outputs.tag }}.zip" SpireSense/
+
+      - name: Generate checksums
+        run: sha256sum SpireSense-${{ steps.version.outputs.tag }}.zip > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/SpireSenseMod.dll
-            release/mod_manifest.json
+            SpireSense-${{ steps.version.outputs.tag }}.zip
+            checksums.txt
           generate_release_notes: true

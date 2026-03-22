@@ -36,8 +36,15 @@ public static class CombatPatch
                 Monsters = monsters,
             };
 
+            // Extract player state (field name placeholder pending decompilation)
+            var playerObj = traverse.Field("player")?.GetValue<object>();
+            if (playerObj != null)
+            {
+                combatState.Player = GameStateApi.ExtractPlayerState(playerObj);
+            }
+
             Plugin.StateTracker?.SetCombatState(combatState);
-            Plugin.StateTracker?.SetScreen("combat");
+            Plugin.StateTracker?.SetScreen(ScreenType.Combat);
             Plugin.StateTracker?.EmitEvent(new GameEvent
             {
                 Type = "combat_start",
@@ -76,12 +83,7 @@ public static class CombatPatch
                     state.Combat.ExhaustPile = GameStateApi.ExtractCards(traverse.Field("exhaustPile"));
                 }
             });
-
-            Plugin.StateTracker?.EmitEvent(new GameEvent
-            {
-                Type = "state_update",
-                Data = Plugin.StateTracker?.GetCurrentState(),
-            });
+            // UpdateState() already emits state_update with a thread-safe serialized snapshot
         }
         catch (System.Exception ex)
         {
@@ -117,7 +119,7 @@ public static class CombatPatch
     }
 
     /// <summary>
-    /// Postfix: Combat ends — record result.
+    /// Postfix: Combat ends — record result and set appropriate screen.
     /// TARGET: CombatManager.EndCombat or equivalent
     /// </summary>
     // [HarmonyPatch(typeof(CombatManager), "EndCombat")]
@@ -128,18 +130,27 @@ public static class CombatPatch
         {
             var traverse = Traverse.Create(__instance);
             var won = traverse.Field("playerWon")?.GetValue<bool>() ?? false;
+            var isBoss = traverse.Field("isBoss")?.GetValue<bool>() ?? false;
             var floor = Plugin.StateTracker?.GetCurrentState().Floor ?? 0;
 
             Plugin.StateTracker?.SetCombatState(null);
+
+            // Set screen based on combat outcome
+            if (won && isBoss)
+                Plugin.StateTracker?.SetScreen(ScreenType.BossReward);
+            else if (!won)
+                Plugin.StateTracker?.SetScreen(ScreenType.GameOver);
+            // Normal victory transitions to card_reward via CardRewardPatch
+
             Plugin.StateTracker?.EmitEvent(new GameEvent
             {
                 Type = "combat_end",
-                Data = new { won, floor },
+                Data = new { won, isBoss, floor },
             });
 
             Plugin.Overlay?.HideCardTiers();
 
-            GD.Print($"[SpireSense] Combat ended: {(won ? "Victory" : "Defeat")}");
+            GD.Print($"[SpireSense] Combat ended: {(won ? "Victory" : "Defeat")}{(isBoss ? " (Boss)" : "")}");
         }
         catch (System.Exception ex)
         {

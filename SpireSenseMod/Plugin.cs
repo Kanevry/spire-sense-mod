@@ -19,12 +19,19 @@ public static class Plugin
     /// <summary>Debug mode enables type discovery logging and verbose output.</summary>
     public static bool DebugMode { get; set; }
 
+    private static bool _initialized;
     private const string HarmonyId = "com.spiresense.mod";
     private const int HttpPort = 8080;
 
     [ModInitializer("Init")]
     public static void Init()
     {
+        if (_initialized)
+        {
+            GD.PrintErr("[SpireSense] Plugin already initialized, skipping");
+            return;
+        }
+
         try
         {
             GD.Print("[SpireSense] Initializing...");
@@ -57,6 +64,7 @@ public static class Plugin
                 Data.TypeDiscovery.DiscoverAndLog();
             }
 
+            _initialized = true;
             GD.Print("[SpireSense] Ready! Connect at http://localhost:8080");
         }
         catch (Exception ex)
@@ -76,17 +84,19 @@ public static class Plugin
         {
             GD.Print("[SpireSense] Unloading...");
 
-            Server?.Stop();
+            Server?.Dispose();
             Server = null;
 
-            WsServer?.Stop();
+            WsServer?.Dispose();
             WsServer = null;
 
             HarmonyInstance?.UnpatchAll(HarmonyId);
             HarmonyInstance = null;
 
+            Overlay?.Cleanup();
             Overlay = null;
             StateTracker = null;
+            _initialized = false;
 
             GD.Print("[SpireSense] Unloaded successfully.");
         }

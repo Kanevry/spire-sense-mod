@@ -20,23 +20,31 @@ public static class GameStateApi
     /// </summary>
     public static CardInfo ExtractCardInfo(object gameCard)
     {
-        var traverse = Traverse.Create(gameCard);
-
-        return new CardInfo
+        try
         {
-            Id = traverse.Field("id")?.GetValue<string>() ?? "",
-            Name = traverse.Field("name")?.GetValue<string>() ?? traverse.Property("Name")?.GetValue<string>() ?? "",
-            Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
-                ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
-                ?? "neutral",
-            Type = traverse.Field("type")?.GetValue<string>()?.ToLowerInvariant() ?? "attack",
-            Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
-            Cost = traverse.Field("cost")?.GetValue<int>() ?? 0,
-            CostUpgraded = traverse.Field("costUpgraded")?.GetValue<int>() ?? 0,
-            Description = traverse.Field("description")?.GetValue<string>() ?? "",
-            Upgraded = traverse.Field("upgraded")?.GetValue<bool>() ?? false,
-            Tags = new List<string>(),
-        };
+            var traverse = Traverse.Create(gameCard);
+
+            return new CardInfo
+            {
+                Id = traverse.Field("id")?.GetValue<string>() ?? "",
+                Name = traverse.Field("name")?.GetValue<string>() ?? traverse.Property("Name")?.GetValue<string>() ?? "",
+                Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
+                    ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
+                    ?? "neutral",
+                Type = traverse.Field("type")?.GetValue<string>()?.ToLowerInvariant() ?? "attack",
+                Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
+                Cost = traverse.Field("cost")?.GetValue<int>() ?? 0,
+                CostUpgraded = traverse.Field("costUpgraded")?.GetValue<int>() ?? 0,
+                Description = traverse.Field("description")?.GetValue<string>() ?? "",
+                Upgraded = traverse.Field("upgraded")?.GetValue<bool>() ?? false,
+                Tags = new List<string>(),
+            };
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] Failed to extract card info: {ex.Message}");
+            return new CardInfo();
+        }
     }
 
     /// <summary>
@@ -72,19 +80,27 @@ public static class GameStateApi
     /// </summary>
     public static RelicInfo ExtractRelicInfo(object gameRelic)
     {
-        var traverse = Traverse.Create(gameRelic);
-
-        return new RelicInfo
+        try
         {
-            Id = traverse.Field("id")?.GetValue<string>() ?? "",
-            Name = traverse.Field("name")?.GetValue<string>() ?? "",
-            Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
-                ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
-                ?? "neutral",
-            Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
-            Description = traverse.Field("description")?.GetValue<string>() ?? "",
-            Tags = new List<string>(),
-        };
+            var traverse = Traverse.Create(gameRelic);
+
+            return new RelicInfo
+            {
+                Id = traverse.Field("id")?.GetValue<string>() ?? "",
+                Name = traverse.Field("name")?.GetValue<string>() ?? "",
+                Character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant()
+                    ?? traverse.Field("color")?.GetValue<string>()?.ToLowerInvariant()
+                    ?? "neutral",
+                Rarity = traverse.Field("rarity")?.GetValue<string>()?.ToLowerInvariant() ?? "common",
+                Description = traverse.Field("description")?.GetValue<string>() ?? "",
+                Tags = new List<string>(),
+            };
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] Failed to extract relic info: {ex.Message}");
+            return new RelicInfo();
+        }
     }
 
     /// <summary>
@@ -177,6 +193,64 @@ public static class GameStateApi
         }
 
         return potions;
+    }
+
+    /// <summary>
+    /// Extract all map nodes from the game's map data object.
+    /// Uses Traverse to iterate the node collection and extract position, type, connections.
+    ///
+    /// NOTE: Field names are placeholders — actual names depend on STS2's map classes.
+    /// </summary>
+    public static List<MapNode> ExtractMapNodes(object mapData)
+    {
+        var nodes = new List<MapNode>();
+        if (mapData == null) return nodes;
+
+        try
+        {
+            var traverse = Traverse.Create(mapData);
+            var nodeCollection = traverse.Field("nodes")?.GetValue<object>();
+            if (nodeCollection is not System.Collections.IEnumerable enumerable) return nodes;
+
+            foreach (var node in enumerable)
+            {
+                var nt = Traverse.Create(node);
+
+                // Extract connection indices from the node's edges/children
+                var connections = new List<int>();
+                var edgeCollection = nt.Field("connections")?.GetValue<object>()
+                    ?? nt.Field("edges")?.GetValue<object>()
+                    ?? nt.Field("children")?.GetValue<object>();
+                if (edgeCollection is System.Collections.IEnumerable edgeEnum)
+                {
+                    foreach (var edge in edgeEnum)
+                    {
+                        var et = Traverse.Create(edge);
+                        var idx = et.Field("index")?.GetValue<int>()
+                            ?? et.Field("targetY")?.GetValue<int>()
+                            ?? -1;
+                        if (idx >= 0) connections.Add(idx);
+                    }
+                }
+
+                nodes.Add(new MapNode
+                {
+                    X = nt.Field("x")?.GetValue<int>() ?? 0,
+                    Y = nt.Field("y")?.GetValue<int>() ?? 0,
+                    Type = (nt.Field("type")?.GetValue<string>()
+                        ?? nt.Field("roomType")?.GetValue<string>()
+                        ?? "monster").ToLowerInvariant(),
+                    Connections = connections,
+                    Visited = nt.Field("visited")?.GetValue<bool>() ?? false,
+                });
+            }
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] Failed to extract map nodes: {ex.Message}");
+        }
+
+        return nodes;
     }
 
     /// <summary>

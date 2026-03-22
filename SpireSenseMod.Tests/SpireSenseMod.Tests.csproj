@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>SpireSenseMod.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <!--
+    Compile testable source files directly instead of referencing the main project.
+    The main project uses Godot.NET.Sdk which requires the Godot engine at build time.
+    The models and GameStateTracker only depend on System.Text.Json (no Godot types),
+    so they can be compiled standalone for testing.
+  -->
+  <ItemGroup>
+    <Compile Include="../SpireSenseMod/Models/GameState.cs" Link="Source/Models/GameState.cs" />
+    <Compile Include="../SpireSenseMod/Models/CardInfo.cs" Link="Source/Models/CardInfo.cs" />
+    <Compile Include="../SpireSenseMod/Models/CombatState.cs" Link="Source/Models/CombatState.cs" />
+    <Compile Include="../SpireSenseMod/GameStateTracker.cs" Link="Source/GameStateTracker.cs" />
+  </ItemGroup>
+
+</Project>

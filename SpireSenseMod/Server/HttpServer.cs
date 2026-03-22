@@ -12,12 +12,13 @@ namespace SpireSenseMod;
 /// Lightweight HTTP server exposing game state at localhost:8080.
 /// Handles CORS for browser access from the SpireSense web app.
 /// </summary>
-public class HttpServer
+public class HttpServer : IDisposable
 {
     private readonly HttpListener _listener;
     private readonly GameStateTracker _stateTracker;
     private readonly CancellationTokenSource _cts = new();
     private readonly int _port;
+    private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -44,6 +45,13 @@ public class HttpServer
         _cts.Cancel();
         _listener.Stop();
         _cts.Dispose();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Stop();
     }
 
     private async Task ListenLoop(CancellationToken ct)
@@ -129,8 +137,8 @@ public class HttpServer
 
     private void HandleGetState(HttpListenerResponse response)
     {
-        var state = _stateTracker.GetCurrentState();
-        SendJson(response, state);
+        // Use pre-serialized snapshot — avoids double serialization and race conditions
+        SendRawJson(response, _stateTracker.GetSerializedState());
     }
 
     private void HandleHealth(HttpListenerResponse response)
@@ -191,10 +199,15 @@ public class HttpServer
 
     private static void SendJson(HttpListenerResponse response, object data, int statusCode = 200)
     {
+        var json = JsonSerializer.Serialize(data, JsonOptions);
+        SendRawJson(response, json, statusCode);
+    }
+
+    private static void SendRawJson(HttpListenerResponse response, string json, int statusCode = 200)
+    {
         response.StatusCode = statusCode;
         response.ContentType = "application/json";
 
-        var json = JsonSerializer.Serialize(data, JsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
 
         response.ContentLength64 = bytes.Length;

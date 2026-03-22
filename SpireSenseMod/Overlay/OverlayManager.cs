@@ -14,6 +14,16 @@ public class OverlayManager
     private readonly List<Control> _activeBadges = new();
 
     /// <summary>
+    /// Remove the overlay from the scene tree and release all resources.
+    /// </summary>
+    public void Cleanup()
+    {
+        HideCardTiers();
+        _overlayLayer?.GetParent()?.RemoveChild(_overlayLayer);
+        _overlayLayer = null;
+    }
+
+    /// <summary>
     /// Show tier badges for card rewards.
     /// Creates a badge for each card positioned relative to the card UI.
     /// </summary>

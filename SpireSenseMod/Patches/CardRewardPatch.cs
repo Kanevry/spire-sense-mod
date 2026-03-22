@@ -50,7 +50,7 @@ public static class CardRewardPatch
             }
 
             Plugin.StateTracker?.SetCardRewards(cardInfos);
-            Plugin.StateTracker?.SetScreen("card_reward");
+            Plugin.StateTracker?.SetScreen(ScreenType.CardReward);
             Plugin.StateTracker?.EmitEvent(new GameEvent
             {
                 Type = "card_rewards_shown",

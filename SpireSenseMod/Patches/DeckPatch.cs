@@ -37,6 +37,36 @@ public static class DeckPatch
     }
 
     /// <summary>
+    /// Postfix: Card removed from deck (shop, event, etc.).
+    /// </summary>
+    // [HarmonyPatch(typeof(DeckManager), "RemoveCard")]
+    // [HarmonyPostfix]
+    public static void OnCardRemoved(object __instance, object card)
+    {
+        try
+        {
+            var cardInfo = GameStateApi.ExtractCardInfo(card);
+
+            Plugin.StateTracker?.UpdateState(state =>
+            {
+                state.Deck.RemoveAll(c => c.Id == cardInfo.Id);
+            });
+
+            Plugin.StateTracker?.EmitEvent(new GameEvent
+            {
+                Type = "card_removed",
+                Data = new { card = cardInfo },
+            });
+
+            GD.Print($"[SpireSense] Card removed from deck: {cardInfo.Name}");
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] CardRemoved error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Postfix: Relic obtained.
     /// </summary>
     // [HarmonyPatch(typeof(RelicManager), "ObtainRelic")]
@@ -76,13 +106,14 @@ public static class DeckPatch
         try
         {
             var traverse = Traverse.Create(__instance);
-            var character = traverse.Field("character")?.GetValue<string>()?.ToLowerInvariant() ?? "ironclad";
+            var rawCharacter = traverse.Field("character")?.GetValue<string>();
+            var character = CharacterValidator.Validate(rawCharacter);
             var ascension = traverse.Field("ascension")?.GetValue<int>() ?? 0;
             var seed = traverse.Field("seed")?.GetValue<string>() ?? "";
 
             Plugin.StateTracker?.SetState(new GameState
             {
-                Screen = "map",
+                Screen = ScreenType.Map,
                 Character = character,
                 Act = 1,
                 Floor = 0,
@@ -119,6 +150,8 @@ public static class DeckPatch
             var won = traverse.Field("victory")?.GetValue<bool>() ?? false;
             var floor = Plugin.StateTracker?.GetCurrentState().Floor ?? 0;
             var score = traverse.Field("score")?.GetValue<int>() ?? 0;
+
+            Plugin.StateTracker?.SetScreen(won ? ScreenType.Victory : ScreenType.GameOver);
 
             Plugin.StateTracker?.EmitEvent(new GameEvent
             {

@@ -14,7 +14,7 @@ namespace SpireSenseMod;
 /// WebSocket server for real-time game event streaming.
 /// Clients connect at ws://localhost:8081 to receive live updates.
 /// </summary>
-public class WebSocketServer
+public class WebSocketServer : IDisposable
 {
     private readonly HttpListener _listener;
     private readonly GameStateTracker _stateTracker;
@@ -22,6 +22,7 @@ public class WebSocketServer
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, int> _pendingSends = new();
     private Task? _pingTask;
+    private bool _disposed;
 
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
@@ -55,6 +56,13 @@ public class WebSocketServer
         _cts.Cancel();
         _stateTracker.OnGameEvent -= BroadcastEvent;
 
+        // Observe the ping task to prevent unobserved task exceptions
+        if (_pingTask != null)
+        {
+            try { _pingTask.GetAwaiter().GetResult(); } catch { /* expected after cancellation */ }
+            _pingTask = null;
+        }
+
         foreach (var client in _clients.Values)
         {
             try
@@ -68,6 +76,13 @@ public class WebSocketServer
         _pendingSends.Clear();
         _listener.Stop();
         _cts.Dispose();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Stop();
     }
 
     private async Task AcceptLoop(CancellationToken ct)
@@ -86,9 +101,12 @@ public class WebSocketServer
 
                     GD.Print($"[SpireSense WS] Client connected: {clientId}");
 
-                    // Send current state immediately
-                    var state = _stateTracker.GetCurrentState();
-                    var stateEvent = new GameEvent { Type = "state_update", Data = state };
+                    // Send current state immediately using pre-serialized snapshot
+                    var stateEvent = new GameEvent
+                    {
+                        Type = "state_update",
+                        SerializedData = _stateTracker.GetSerializedState(),
+                    };
                     await SendToClient(clientId, wsContext.WebSocket, stateEvent);
 
                     _ = Task.Run(() => ReceiveLoop(clientId, wsContext.WebSocket, ct), ct);
@@ -141,6 +159,7 @@ public class WebSocketServer
         {
             _clients.TryRemove(clientId, out _);
             _pendingSends.TryRemove(clientId, out _);
+            ws.Dispose();
             GD.Print($"[SpireSense WS] Client disconnected: {clientId}");
         }
     }
@@ -242,7 +261,18 @@ public class WebSocketServer
         _pendingSends.AddOrUpdate(clientId, 1, (_, v) => v + 1);
         try
         {
-            var json = JsonSerializer.Serialize(gameEvent, JsonOptions);
+            // Use pre-serialized data when available to avoid race conditions
+            // on the mutable Data object reference
+            string json;
+            if (gameEvent.SerializedData != null)
+            {
+                json = JsonSerializer.Serialize(new { type = gameEvent.Type, data = JsonSerializer.Deserialize<JsonElement>(gameEvent.SerializedData) }, JsonOptions);
+            }
+            else
+            {
+                json = JsonSerializer.Serialize(gameEvent, JsonOptions);
+            }
+
             var bytes = Encoding.UTF8.GetBytes(json);
 
             using var timeoutCts = new CancellationTokenSource(SendTimeout);

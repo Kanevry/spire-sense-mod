@@ -10,7 +10,7 @@ namespace SpireSenseMod;
 public class GameState
 {
     [JsonPropertyName("screen")]
-    public string Screen { get; set; } = "main_menu";
+    public string Screen { get; set; } = ScreenType.MainMenu;
 
     [JsonPropertyName("character")]
     public string Character { get; set; } = "ironclad";
@@ -50,6 +50,9 @@ public class GameState
 
     [JsonPropertyName("eventOptions")]
     public List<EventOption>? EventOptions { get; set; }
+
+    [JsonPropertyName("restOptions")]
+    public List<RestOption>? RestOptions { get; set; }
 }
 
 public class GameEvent
@@ -59,4 +62,12 @@ public class GameEvent
 
     [JsonPropertyName("data")]
     public object? Data { get; set; }
+
+    /// <summary>
+    /// Pre-serialized JSON state snapshot, captured under the tracker lock.
+    /// Used by WebSocket broadcast to avoid re-serializing the mutable state object.
+    /// Excluded from JSON serialization — it is the serialization.
+    /// </summary>
+    [JsonIgnore]
+    public string? SerializedData { get; set; }
 }

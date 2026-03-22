@@ -119,6 +119,9 @@ public class MapNode
     [JsonPropertyName("type")]
     public string Type { get; set; } = "monster";
 
+    [JsonPropertyName("connections")]
+    public List<int> Connections { get; set; } = new();
+
     [JsonPropertyName("visited")]
     public bool Visited { get; set; }
 }
@@ -154,4 +157,37 @@ public class RelicInfo
 
     [JsonPropertyName("tags")]
     public List<string> Tags { get; set; } = new();
+}
+
+public class ShopItem
+{
+    [JsonPropertyName("card")]
+    public CardInfo Card { get; set; } = new();
+
+    [JsonPropertyName("price")]
+    public int Price { get; set; }
+}
+
+public class ShopRelicItem
+{
+    [JsonPropertyName("relic")]
+    public RelicInfo Relic { get; set; } = new();
+
+    [JsonPropertyName("price")]
+    public int Price { get; set; }
+}
+
+public class RestOption
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
 }
