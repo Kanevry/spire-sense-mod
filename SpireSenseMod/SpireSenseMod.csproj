@@ -1,4 +1,4 @@
-<Project Sdk="Godot.NET.Sdk/4.5.0">
+<Project Sdk="Godot.NET.Sdk/4.5.1">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -16,7 +16,7 @@
   <Import Project="local.props" Condition="Exists('local.props')" />
 
   <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.3.*" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
   </ItemGroup>
 
   <!-- Copy output to STS2 mods folder on build -->

@@ -5,8 +5,8 @@
 ## Quick Facts
 
 - **Game Engine:** Godot 4.5.1 (STS2 runs on Godot, NOT Unity)
-- **SDK:** Godot.NET.Sdk 4.5.0, .NET 9.0, C# (latest LangVersion)
-- **Patching:** Harmony 2.3.x (runtime method patching via `[HarmonyPatch]`)
+- **SDK:** Godot.NET.Sdk 4.5.1, .NET 9.0, C# (latest LangVersion)
+- **Patching:** Harmony 2.4.2 (runtime method patching via `[HarmonyPatch]`, .NET 9 native)
 - **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
 - **Status:** Early Access -- all Harmony patch targets are commented out (placeholder class/method names need verification via game DLL decompilation)
@@ -20,7 +20,17 @@ dotnet build                    # Build DLL (auto-deploys to mods folder if STS2
 dotnet build -c Release         # Release build
 ```
 
-No test framework is set up yet. No CI pipeline.
+dotnet test SpireSenseMod.Tests  # xUnit tests (34 tests, no Godot dependency)
+```
+
+## CI Pipeline
+
+GitHub Actions (`.github/workflows/build.yml`):
+- **test job** (ubuntu, no Godot): xUnit tests via source-file linking
+- **build job** (ubuntu): `dotnet restore` + `dotnet format` + `dotnet build -c Release /p:TreatWarningsAsErrors=true`
+- **release job** (on `v*` tags): Creates `SpireSense-v{version}.zip` with SHA256 checksums
+
+```bash
 
 ## Setup
 
@@ -33,7 +43,7 @@ No test framework is set up yet. No CI pipeline.
 ```
 SpireSenseMod/
   Plugin.cs              # Entry point: Init() + Unload(), inits Harmony, HTTP, WebSocket, Overlay
-  GameStateTracker.cs    # Thread-safe central state (lock-based), event emitter
+  GameStateTracker.cs    # Thread-safe central state (serializes under lock, immutable snapshots), event emitter
   Models/                # JSON-serializable data models (System.Text.Json)
     GameState.cs         # Full snapshot: screen, character, act, floor, deck, relics, combat, map, shop, events
     CardInfo.cs          # Card with id, name, type, rarity, cost, tags, upgraded
@@ -42,7 +52,11 @@ SpireSenseMod/
     CardRewardPatch.cs   # Card reward shown/picked
     CombatPatch.cs       # Combat start/end, turn start, card played
     MapPatch.cs          # Floor/map navigation
-    DeckPatch.cs         # Card added, relic obtained, run start/end
+    DeckPatch.cs         # Card added/removed, relic obtained, run start/end
+    ShopPatch.cs         # Shop screen entry/exit, card/relic/price extraction
+    EventPatch.cs        # Event encounters, option extraction
+    RestPatch.cs         # Rest site visits, heal/upgrade tracking
+    PotionPatch.cs       # Potion usage and acquisition
   Server/
     HttpServer.cs        # HttpListener on localhost:8080, CORS, 5s timeout, /api/version
     WebSocketServer.cs   # HttpListener on localhost:8081, broadcast with backpressure (max 10 pending, 5s send timeout)

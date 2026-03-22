@@ -7,9 +7,36 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
+  # Tests run without Godot SDK — source-file linking compiles models directly
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore test dependencies
+        run: dotnet restore SpireSenseMod.Tests/SpireSenseMod.Tests.csproj
+
+      - name: Build tests
+        run: dotnet build SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-build --verbosity normal
+
+  # Main build requires Godot.NET.Sdk (resolved from nuget.org)
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -23,14 +50,19 @@ jobs:
         run: dotnet restore SpireSenseMod/SpireSenseMod.csproj
 
       - name: Check formatting
-        run: dotnet format --verify-no-changes SpireSenseMod/SpireSenseMod.csproj
+        run: dotnet format SpireSenseMod/SpireSenseMod.csproj --verify-no-changes
 
-      - name: Build
-        run: dotnet build -c Release /p:TreatWarningsAsErrors=true SpireSenseMod/SpireSenseMod.csproj --no-restore
+      - name: Build (Release, warnings as errors)
+        run: dotnet build SpireSenseMod/SpireSenseMod.csproj --configuration Release /p:TreatWarningsAsErrors=true --no-restore
 
-      - name: Test
-        if: hashFiles('SpireSenseMod.Tests/SpireSenseMod.Tests.csproj') != ''
-        run: dotnet test SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release --no-build
+      - name: Verify mod manifest
+        run: |
+          if [ ! -f SpireSenseMod/mod_manifest.json ]; then
+            echo "ERROR: mod_manifest.json not found"
+            exit 1
+          fi
+          echo "Mod manifest found:"
+          cat SpireSenseMod/mod_manifest.json
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -40,9 +72,10 @@ jobs:
             SpireSenseMod/bin/Release/net9.0/SpireSenseMod.dll
             SpireSenseMod/mod_manifest.json
 
+  # Release on version tags
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [test, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -61,11 +94,11 @@ jobs:
         run: |
           mkdir -p SpireSense
           cp artifact/SpireSenseMod/bin/Release/net9.0/SpireSenseMod.dll SpireSense/
-          cp artifact/SpireSenseMod/mod_manifest.json SpireSense/
+          cp artifact/mod_manifest.json SpireSense/
           zip -r "SpireSense-${{ steps.version.outputs.tag }}.zip" SpireSense/
 
       - name: Generate checksums
-        run: sha256sum SpireSense-${{ steps.version.outputs.tag }}.zip > checksums.txt
+        run: sha256sum "SpireSense-${{ steps.version.outputs.tag }}.zip" > checksums.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
