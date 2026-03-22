@@ -24,6 +24,8 @@
     <Compile Include="../SpireSenseMod/Models/GameState.cs" Link="Source/Models/GameState.cs" />
     <Compile Include="../SpireSenseMod/Models/CardInfo.cs" Link="Source/Models/CardInfo.cs" />
     <Compile Include="../SpireSenseMod/Models/CombatState.cs" Link="Source/Models/CombatState.cs" />
+    <Compile Include="../SpireSenseMod/Models/ScreenType.cs" Link="Source/Models/ScreenType.cs" />
+    <Compile Include="../SpireSenseMod/Models/CharacterValidator.cs" Link="Source/Models/CharacterValidator.cs" />
     <Compile Include="../SpireSenseMod/GameStateTracker.cs" Link="Source/GameStateTracker.cs" />
   </ItemGroup>
 
