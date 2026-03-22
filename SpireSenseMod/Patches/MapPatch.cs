@@ -34,7 +34,7 @@ public static class MapPatch
             var mapData = mapTraverse.Field("mapData")?.GetValue<object>()
                 ?? mapTraverse.Field("map")?.GetValue<object>()
                 ?? mapTraverse.Field("currentMap")?.GetValue<object>();
-            var mapNodes = GameStateApi.ExtractMapNodes(mapData);
+            var mapNodes = mapData != null ? GameStateApi.ExtractMapNodes(mapData) : new List<MapNode>();
 
             // Mark the current node as visited in the extracted snapshot
             foreach (var mn in mapNodes)
