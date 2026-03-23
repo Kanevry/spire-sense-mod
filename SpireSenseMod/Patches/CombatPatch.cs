@@ -34,15 +34,18 @@ public static class CombatPatch
         }
 
         [HarmonyPostfix]
-        static void Postfix(object __instance)
+        static void Postfix(object __instance, object[] __args)
         {
             try
             {
                 var traverse = Traverse.Create(__instance);
 
-                // CombatState has Enemies (creatures) and Allies (players)
-                var combatStateObj = traverse.Field("_combatState")?.GetValue<object>()
-                    ?? traverse.Property("CombatState")?.GetValue<object>();
+                // SetUpCombat receives CombatState as first parameter
+                // Also try reading it from CombatManager fields/properties
+                var combatStateObj = (__args?.Length > 0 ? __args[0] : null)
+                    ?? traverse.Property("State")?.GetValue<object>()
+                    ?? traverse.Property("CombatState")?.GetValue<object>()
+                    ?? traverse.Field("_combatState")?.GetValue<object>();
 
                 var monsters = new List<MonsterInfo>();
                 if (combatStateObj != null)
@@ -50,6 +53,7 @@ public static class CombatPatch
                     GameStateApi.DumpObjectOnce(combatStateObj, "CombatState");
                     var csTraverse = Traverse.Create(combatStateObj);
                     var enemies = csTraverse.Property("Enemies")?.GetValue<object>()
+                        ?? csTraverse.Property("Creatures")?.GetValue<object>()
                         ?? csTraverse.Field("_enemies")?.GetValue<object>();
                     if (enemies is System.Collections.IEnumerable enumerable)
                     {
@@ -66,18 +70,48 @@ public static class CombatPatch
                     Monsters = monsters,
                 };
 
-                // Extract player state from CombatState.Allies or Players
+                // Extract player HP/Block from Allies + Gold/MaxEnergy from RunState
+                // Using direct reflection since Traverse.GetValue on IReadOnlyList can return null
                 if (combatStateObj != null)
                 {
-                    var csTraverse = Traverse.Create(combatStateObj);
-                    var players = csTraverse.Property("Allies")?.GetValue<object>()
-                        ?? csTraverse.Field("_allies")?.GetValue<object>();
-                    if (players is System.Collections.IEnumerable playerEnum)
+                    // 1. Get HP/Block from Allies (Creature objects — same type as monsters)
+                    var alliesProp = combatStateObj.GetType().GetProperty("Allies");
+                    GD.Print($"[SpireSense] Allies prop: {alliesProp?.Name ?? "NULL"}, type: {alliesProp?.PropertyType?.Name ?? "?"}");
+                    object? alliesVal = null;
+                    try { alliesVal = alliesProp?.GetValue(combatStateObj); }
+                    catch (System.Exception ex) { GD.Print($"[SpireSense] Allies GetValue error: {ex.Message}"); }
+                    GD.Print($"[SpireSense] Allies val: {alliesVal?.GetType()?.Name ?? "NULL"}, isEnum: {alliesVal is System.Collections.IEnumerable}");
+                    if (alliesVal is System.Collections.IEnumerable allyEnum)
                     {
-                        foreach (var player in playerEnum)
+                        foreach (var ally in allyEnum)
                         {
-                            combatState.Player = GameStateApi.ExtractPlayerState(player);
-                            break; // Take first player
+                            var at = Traverse.Create(ally);
+                            combatState.Player.Hp = at.Property("CurrentHp")?.GetValue<int>() ?? 0;
+                            combatState.Player.MaxHp = at.Property("MaxHp")?.GetValue<int>() ?? 0;
+                            combatState.Player.Block = at.Property("Block")?.GetValue<int>() ?? 0;
+                            GD.Print($"[SpireSense] Player HP from Allies: {combatState.Player.Hp}/{combatState.Player.MaxHp}");
+                            break; // First ally = the player creature
+                        }
+                    }
+
+                    // 2. Get Gold/MaxEnergy from CombatState.RunState.Players
+                    var rsProp = combatStateObj.GetType().GetProperty("RunState");
+                    var rsVal = rsProp?.GetValue(combatStateObj);
+                    if (rsVal != null)
+                    {
+                        var playersField = rsVal.GetType().GetField("_players",
+                            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        var playersVal = playersField?.GetValue(rsVal);
+                        if (playersVal is System.Collections.IEnumerable playerEnum)
+                        {
+                            foreach (var player in playerEnum)
+                            {
+                                var pt = Traverse.Create(player);
+                                combatState.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                                combatState.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
+                                GD.Print($"[SpireSense] Player Gold: {combatState.Player.Gold}, MaxEnergy: {combatState.Player.MaxEnergy}");
+                                break;
+                            }
                         }
                     }
                 }

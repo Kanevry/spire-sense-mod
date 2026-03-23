@@ -209,18 +209,28 @@ public static class DeckPatch
                         ?? rsTraverse.Field("_seed")?.GetValue<string>()
                         ?? "";
 
-                    // Get players from RunState
-                    var players = rsTraverse.Property("Players")?.GetValue<object>();
+                    // Get ascension from RunState
+                    ascension = rsTraverse.Property("AscensionLevel")?.GetValue<int>()
+                        ?? rsTraverse.Field("_ascensionLevel")?.GetValue<int>()
+                        ?? 0;
+
+                    // Get players from RunState — Player.Character gives "CHARACTER.IRONCLAD (id)"
+                    var players = rsTraverse.Field("_players")?.GetValue<object>()
+                        ?? rsTraverse.Property("Players")?.GetValue<object>();
                     if (players is System.Collections.IEnumerable playerEnum)
                     {
                         foreach (var player in playerEnum)
                         {
                             GameStateApi.DumpObjectOnce(player, "RunState.Player");
                             var playerTraverse = Traverse.Create(player);
-                            var rawChar = playerTraverse.Property("CharacterId")?.GetValue<string>()
-                                ?? playerTraverse.Field("_characterId")?.GetValue<string>()
-                                ?? playerTraverse.Property("Name")?.GetValue<string>();
-                            character = CharacterValidator.Validate(rawChar);
+                            // Player.Character (CharacterModel) → "CHARACTER.IRONCLAD (41244374)"
+                            var charStr = playerTraverse.Property("Character")?.GetValue<object>()?.ToString() ?? "";
+                            if (charStr.Contains("IRONCLAD")) character = "ironclad";
+                            else if (charStr.Contains("SILENT")) character = "silent";
+                            else if (charStr.Contains("DEFECT")) character = "defect";
+                            else if (charStr.Contains("REGENT")) character = "regent";
+                            else if (charStr.Contains("NECROBINDER")) character = "necrobinder";
+                            else if (charStr.Contains("DEPRIVED")) character = "deprived";
                             break;
                         }
                     }

@@ -54,17 +54,21 @@ public static class MapPatch
                 // Get RunState from RunManager to extract floor and room type
                 GameStateApi.DumpObjectOnce(__instance, "RunManager");
                 var rmTraverse = Traverse.Create(__instance);
-                var runState = rmTraverse.Field("_runState")?.GetValue<object>()
+                // RunManager.State is the RunState (confirmed from dump: <State>k__BackingField)
+                var runState = rmTraverse.Property("State")?.GetValue<object>()
+                    ?? rmTraverse.Field("<State>k__BackingField")?.GetValue<object>()
                     ?? rmTraverse.Property("RunState")?.GetValue<object>();
 
-                var floor = y;
+                var floor = y; // Fallback to map Y coordinate
                 var nodeType = "monster";
 
                 if (runState != null)
                 {
                     var rsTraverse = Traverse.Create(runState);
-                    floor = rsTraverse.Property("TotalFloor")?.GetValue<int>()
-                        ?? rsTraverse.Property("ActFloor")?.GetValue<int>()
+                    // ActFloor confirmed from RunState dump: <ActFloor>k__BackingField (Int32)
+                    floor = rsTraverse.Property("ActFloor")?.GetValue<int>()
+                        ?? rsTraverse.Property("TotalFloor")?.GetValue<int>()
+                        ?? rsTraverse.Property("CurrentRoomCount")?.GetValue<int>()
                         ?? y;
 
                     // Get current room type

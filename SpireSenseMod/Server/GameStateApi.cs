@@ -19,6 +19,36 @@ public static class GameStateApi
     private static readonly HashSet<string> _dumpedTypes = new();
 
     /// <summary>
+    /// Resolve a LocString object to its localized text via Godot's TranslationServer.
+    /// LocString has LocTable (e.g., "cards") and LocEntryKey (e.g., "RAGE.description").
+    /// </summary>
+    public static string ResolveLocString(object? locStringObj)
+    {
+        if (locStringObj == null) return "";
+        var lsTraverse = Traverse.Create(locStringObj);
+
+        // Try direct text properties first (in case future versions add them)
+        var text = lsTraverse.Property("Text")?.GetValue<string>();
+        if (!string.IsNullOrEmpty(text)) return text;
+
+        // Resolve via Godot TranslationServer using LocEntryKey
+        var entryKey = lsTraverse.Property("LocEntryKey")?.GetValue<string>()
+            ?? lsTraverse.Field("locEntryKey")?.GetValue<string>();
+        if (!string.IsNullOrEmpty(entryKey))
+        {
+            // Try Godot's built-in translation
+            var translated = TranslationServer.Translate(entryKey);
+            if (translated != null && translated != entryKey)
+                return translated;
+
+            // Fallback: use the entry key itself (e.g., "RAGE.description")
+            return entryKey;
+        }
+
+        return "";
+    }
+
+    /// <summary>
     /// Dump all public properties and fields of an object (once per type) for debugging.
     /// </summary>
     public static void DumpObjectOnce(object obj, string label)
@@ -82,15 +112,23 @@ public static class GameStateApi
                 cardId = (spaceIdx > 5 ? canonicalStr.Substring(5, spaceIdx - 5) : canonicalStr.Substring(5)).ToLowerInvariant();
             }
 
-            // Title is a plain String, Description is LocString (use ToString)
+            // Title is a plain String
             var name = traverse.Property("Title")?.GetValue<string>() ?? "";
-            var desc = traverse.Property("Description")?.GetValue<object>()?.ToString() ?? "";
 
-            // EnergyCost is CardEnergyCost type — dump to discover sub-properties
+            // EnergyCost is CardEnergyCost type — Canonical property is the base cost int
             var energyCostObj = traverse.Property("EnergyCost")?.GetValue<object>();
             if (energyCostObj != null) DumpObjectOnce(energyCostObj, "CardEnergyCost");
-            var energyCostStr = energyCostObj?.ToString() ?? "0";
-            int.TryParse(energyCostStr, out var cost);
+            var cost = 0;
+            if (energyCostObj != null)
+            {
+                var ecTraverse = Traverse.Create(energyCostObj);
+                cost = ecTraverse.Property("Canonical")?.GetValue<int>()
+                    ?? ecTraverse.Field("_base")?.GetValue<int>()
+                    ?? 0;
+            }
+
+            // Description is LocString — has LocTable + LocEntryKey, resolve via Godot TranslationServer
+            var desc = ResolveLocString(traverse.Property("Description")?.GetValue<object>());
 
             // Character from Pool (e.g., "CARD_POOL.IRONCLAD_CARD_POOL (44127137)" → "ironclad")
             var poolStr = traverse.Property("Pool")?.GetValue<object>()?.ToString() ?? "";
@@ -197,11 +235,12 @@ public static class GameStateApi
 
         var info = new MonsterInfo
         {
-            Id = (traverse.Property("MonsterId")?.GetValue<object>()
-                ?? traverse.Property("CreatureId")?.GetValue<object>()
-                ?? traverse.Field("_monsterId")?.GetValue<object>())?.ToString() ?? "",
-            Name = (traverse.Property("Name")?.GetValue<object>()
-                ?? traverse.Field("_name")?.GetValue<object>())?.ToString() ?? "",
+            // Creature.ModelId gives "MONSTER.NIBBIT", Creature.Name gives "Nibbit"
+            Id = (traverse.Property("ModelId")?.GetValue<object>()
+                ?? traverse.Property("Monster")?.GetValue<object>()
+                ?? traverse.Property("MonsterId")?.GetValue<object>())?.ToString() ?? "",
+            Name = traverse.Property("Name")?.GetValue<string>()
+                ?? (traverse.Property("Name")?.GetValue<object>())?.ToString() ?? "",
             Hp = traverse.Property("CurrentHp")?.GetValue<int>()
                 ?? traverse.Field("_currentHp")?.GetValue<int>()
                 ?? 0,
@@ -424,27 +463,56 @@ public static class GameStateApi
 
         var traverse = Traverse.Create(gamePlayer);
 
+        // Gold and MaxEnergy are directly on Player (verified from dump)
+        var gold = traverse.Property("Gold")?.GetValue<int>()
+            ?? traverse.Field("_gold")?.GetValue<int>()
+            ?? 0;
+        var maxEnergy = traverse.Property("MaxEnergy")?.GetValue<int>()
+            ?? traverse.Field("_maxEnergy")?.GetValue<int>()
+            ?? 3;
+
+        // HP/Block are on the Creature sub-object
+        // Player.Creature is a Creature with CurrentHp, MaxHp, Block (same type as monsters)
+        var creatureObj = traverse.Property("Creature")?.GetValue<object>()
+            ?? traverse.Field("<Creature>k__BackingField")?.GetValue<object>();
+
+        int hp = 0, maxHp = 0, block = 0;
+        if (creatureObj != null)
+        {
+            DumpObjectOnce(creatureObj, "PlayerCreature");
+            var ct = Traverse.Create(creatureObj);
+            hp = ct.Property("CurrentHp")?.GetValue<int>() ?? 0;
+            maxHp = ct.Property("MaxHp")?.GetValue<int>() ?? 0;
+            block = ct.Property("Block")?.GetValue<int>() ?? 0;
+        }
+        else
+        {
+            GD.Print($"[SpireSense] WARNING: Player.Creature is null, trying PlayerCombatState");
+            // Fallback: try PlayerCombatState which may have HP data
+            var pcs = traverse.Property("PlayerCombatState")?.GetValue<object>();
+            if (pcs != null)
+            {
+                DumpObjectOnce(pcs, "PlayerCombatState");
+                var pcsTraverse = Traverse.Create(pcs);
+                hp = pcsTraverse.Property("CurrentHp")?.GetValue<int>() ?? 0;
+                maxHp = pcsTraverse.Property("MaxHp")?.GetValue<int>() ?? 0;
+                block = pcsTraverse.Property("Block")?.GetValue<int>() ?? 0;
+            }
+        }
+
         return new PlayerState
         {
-            Hp = traverse.Property("CurrentHp")?.GetValue<int>()
-                ?? traverse.Field("_currentHp")?.GetValue<int>()
-                ?? 0,
-            MaxHp = traverse.Property("MaxHp")?.GetValue<int>()
-                ?? traverse.Field("_maxHp")?.GetValue<int>()
-                ?? 0,
-            Block = traverse.Property("Block")?.GetValue<int>()
-                ?? traverse.Field("_block")?.GetValue<int>()
-                ?? 0,
+            Hp = hp,
+            MaxHp = maxHp,
+            Block = block,
             Energy = traverse.Property("Energy")?.GetValue<int>()
                 ?? traverse.Field("_energy")?.GetValue<int>()
                 ?? 0,
-            MaxEnergy = traverse.Property("MaxEnergy")?.GetValue<int>()
-                ?? traverse.Field("_maxEnergy")?.GetValue<int>()
-                ?? 3,
-            Gold = traverse.Property("Gold")?.GetValue<int>()
-                ?? traverse.Field("_gold")?.GetValue<int>()
-                ?? 0,
-            Powers = ExtractPowers(traverse.Property("Powers") ?? traverse.Field("_powers")),
+            MaxEnergy = maxEnergy,
+            Gold = gold,
+            Powers = creatureObj != null
+                ? ExtractPowers(Traverse.Create(creatureObj).Property("Powers") ?? Traverse.Create(creatureObj).Field("_powers"))
+                : new List<PowerInfo>(),
             Potions = ExtractPotions(traverse.Property("PotionSlots") ?? traverse.Field("_potionSlots")),
         };
     }
