@@ -201,6 +201,7 @@ public static class DeckPatch
 
                 if (__result != null)
                 {
+                    GameStateApi.DumpObjectOnce(__result, "RunState");
                     var rsTraverse = Traverse.Create(__result);
 
                     // Get seed from RunState
@@ -214,6 +215,7 @@ public static class DeckPatch
                     {
                         foreach (var player in playerEnum)
                         {
+                            GameStateApi.DumpObjectOnce(player, "RunState.Player");
                             var playerTraverse = Traverse.Create(player);
                             var rawChar = playerTraverse.Property("CharacterId")?.GetValue<string>()
                                 ?? playerTraverse.Field("_characterId")?.GetValue<string>()

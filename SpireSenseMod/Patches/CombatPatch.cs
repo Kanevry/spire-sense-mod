@@ -47,6 +47,7 @@ public static class CombatPatch
                 var monsters = new List<MonsterInfo>();
                 if (combatStateObj != null)
                 {
+                    GameStateApi.DumpObjectOnce(combatStateObj, "CombatState");
                     var csTraverse = Traverse.Create(combatStateObj);
                     var enemies = csTraverse.Property("Enemies")?.GetValue<object>()
                         ?? csTraverse.Field("_enemies")?.GetValue<object>();
@@ -230,9 +231,8 @@ public static class CombatPatch
                 if (targetObj != null)
                 {
                     var targetTraverse = Traverse.Create(targetObj);
-                    targetName = targetTraverse.Property("Name")?.GetValue<string>()
-                        ?? targetTraverse.Field("_name")?.GetValue<string>()
-                        ?? "";
+                    targetName = (targetTraverse.Property("Name")?.GetValue<object>()
+                        ?? targetTraverse.Field("_name")?.GetValue<object>())?.ToString() ?? "";
                 }
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent

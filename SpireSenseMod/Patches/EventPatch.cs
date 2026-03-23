@@ -44,12 +44,11 @@ public static class EventPatch
                 var traverse = Traverse.Create(__instance);
 
                 // EventModel has name/description via properties or type name
-                var eventName = traverse.Property("Name")?.GetValue<string>()
-                    ?? traverse.Property("EventId")?.GetValue<string>()
+                var eventName = (traverse.Property("Name")?.GetValue<object>()
+                    ?? traverse.Property("EventId")?.GetValue<object>())?.ToString()
                     ?? __instance.GetType().Name;
-                var description = traverse.Property("Description")?.GetValue<string>()
-                    ?? traverse.Field("_description")?.GetValue<string>()
-                    ?? "";
+                var description = (traverse.Property("Description")?.GetValue<object>()
+                    ?? traverse.Field("_description")?.GetValue<object>())?.ToString() ?? "";
 
                 // Extract event options from CurrentOptions
                 var eventOptions = new List<EventOption>();
@@ -64,13 +63,12 @@ public static class EventPatch
                         var optTraverse = Traverse.Create(option);
                         eventOptions.Add(new EventOption
                         {
-                            Id = optTraverse.Property("OptionId")?.GetValue<string>()
-                                ?? optTraverse.Field("_optionId")?.GetValue<string>()
+                            Id = (optTraverse.Property("OptionId")?.GetValue<object>()
+                                ?? optTraverse.Field("_optionId")?.GetValue<object>())?.ToString()
                                 ?? $"option_{index}",
-                            Text = optTraverse.Property("Title")?.GetValue<string>()
-                                ?? optTraverse.Property("Text")?.GetValue<string>()
-                                ?? optTraverse.Field("_title")?.GetValue<string>()
-                                ?? "",
+                            Text = (optTraverse.Property("Title")?.GetValue<object>()
+                                ?? optTraverse.Property("Text")?.GetValue<object>()
+                                ?? optTraverse.Field("_title")?.GetValue<object>())?.ToString() ?? "",
                             Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
                                 ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
                                 ?? true,

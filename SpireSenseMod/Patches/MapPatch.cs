@@ -52,6 +52,7 @@ public static class MapPatch
                     ?? 0;
 
                 // Get RunState from RunManager to extract floor and room type
+                GameStateApi.DumpObjectOnce(__instance, "RunManager");
                 var rmTraverse = Traverse.Create(__instance);
                 var runState = rmTraverse.Field("_runState")?.GetValue<object>()
                     ?? rmTraverse.Property("RunState")?.GetValue<object>();

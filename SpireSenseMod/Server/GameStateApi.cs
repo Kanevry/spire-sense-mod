@@ -86,8 +86,9 @@ public static class GameStateApi
             var name = traverse.Property("Title")?.GetValue<string>() ?? "";
             var desc = traverse.Property("Description")?.GetValue<object>()?.ToString() ?? "";
 
-            // EnergyCost is CardEnergyCost type — use ToString to get the value
+            // EnergyCost is CardEnergyCost type — dump to discover sub-properties
             var energyCostObj = traverse.Property("EnergyCost")?.GetValue<object>();
+            if (energyCostObj != null) DumpObjectOnce(energyCostObj, "CardEnergyCost");
             var energyCostStr = energyCostObj?.ToString() ?? "0";
             int.TryParse(energyCostStr, out var cost);
 
@@ -163,22 +164,17 @@ public static class GameStateApi
 
             return new RelicInfo
             {
-                Id = traverse.Property("RelicId")?.GetValue<string>()
-                    ?? traverse.Field("_relicId")?.GetValue<string>()
-                    ?? "",
-                Name = traverse.Property("Name")?.GetValue<string>()
-                    ?? traverse.Field("_name")?.GetValue<string>()
-                    ?? "",
-                Character = (traverse.Property("CharacterId")?.GetValue<string>()
-                    ?? traverse.Field("_characterId")?.GetValue<string>()
-                    ?? traverse.Property("Color")?.GetValue<object>()?.ToString()
-                    ?? "neutral").ToLowerInvariant(),
-                Rarity = (traverse.Property("Rarity")?.GetValue<object>()?.ToString()
-                    ?? traverse.Field("_rarity")?.GetValue<object>()?.ToString()
-                    ?? "Common").ToLowerInvariant(),
-                Description = traverse.Property("Description")?.GetValue<string>()
-                    ?? traverse.Field("_description")?.GetValue<string>()
-                    ?? "",
+                Id = (traverse.Property("RelicId")?.GetValue<object>()
+                    ?? traverse.Field("_relicId")?.GetValue<object>())?.ToString() ?? "",
+                Name = (traverse.Property("Name")?.GetValue<object>()
+                    ?? traverse.Field("_name")?.GetValue<object>())?.ToString() ?? "",
+                Character = (traverse.Property("CharacterId")?.GetValue<object>()
+                    ?? traverse.Field("_characterId")?.GetValue<object>()
+                    ?? traverse.Property("Color")?.GetValue<object>())?.ToString()?.ToLowerInvariant() ?? "neutral",
+                Rarity = (traverse.Property("Rarity")?.GetValue<object>()
+                    ?? traverse.Field("_rarity")?.GetValue<object>())?.ToString()?.ToLowerInvariant() ?? "common",
+                Description = (traverse.Property("Description")?.GetValue<object>()
+                    ?? traverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
                 Tags = new List<string>(),
             };
         }
@@ -201,13 +197,11 @@ public static class GameStateApi
 
         var info = new MonsterInfo
         {
-            Id = traverse.Property("MonsterId")?.GetValue<string>()
-                ?? traverse.Property("CreatureId")?.GetValue<string>()
-                ?? traverse.Field("_monsterId")?.GetValue<string>()
-                ?? "",
-            Name = traverse.Property("Name")?.GetValue<string>()
-                ?? traverse.Field("_name")?.GetValue<string>()
-                ?? "",
+            Id = (traverse.Property("MonsterId")?.GetValue<object>()
+                ?? traverse.Property("CreatureId")?.GetValue<object>()
+                ?? traverse.Field("_monsterId")?.GetValue<object>())?.ToString() ?? "",
+            Name = (traverse.Property("Name")?.GetValue<object>()
+                ?? traverse.Field("_name")?.GetValue<object>())?.ToString() ?? "",
             Hp = traverse.Property("CurrentHp")?.GetValue<int>()
                 ?? traverse.Field("_currentHp")?.GetValue<int>()
                 ?? 0,
@@ -248,12 +242,10 @@ public static class GameStateApi
                     var pt = Traverse.Create(power);
                     powers.Add(new PowerInfo
                     {
-                        Id = pt.Property("PowerId")?.GetValue<string>()
-                            ?? pt.Field("_powerId")?.GetValue<string>()
-                            ?? "",
-                        Name = pt.Property("Name")?.GetValue<string>()
-                            ?? pt.Field("_name")?.GetValue<string>()
-                            ?? "",
+                        Id = (pt.Property("PowerId")?.GetValue<object>()
+                            ?? pt.Field("_powerId")?.GetValue<object>())?.ToString() ?? "",
+                        Name = (pt.Property("Name")?.GetValue<object>()
+                            ?? pt.Field("_name")?.GetValue<object>())?.ToString() ?? "",
                         Amount = pt.Property("Amount")?.GetValue<int>()
                             ?? pt.Property("StackAmount")?.GetValue<int>()
                             ?? pt.Field("_amount")?.GetValue<int>()
@@ -291,15 +283,12 @@ public static class GameStateApi
                     var pt = Traverse.Create(potion);
                     potions.Add(new PotionInfo
                     {
-                        Id = pt.Property("PotionId")?.GetValue<string>()
-                            ?? pt.Field("_potionId")?.GetValue<string>()
-                            ?? "",
-                        Name = pt.Property("Name")?.GetValue<string>()
-                            ?? pt.Field("_name")?.GetValue<string>()
-                            ?? "",
-                        Description = pt.Property("Description")?.GetValue<string>()
-                            ?? pt.Field("_description")?.GetValue<string>()
-                            ?? "",
+                        Id = (pt.Property("PotionId")?.GetValue<object>()
+                            ?? pt.Field("_potionId")?.GetValue<object>())?.ToString() ?? "",
+                        Name = (pt.Property("Name")?.GetValue<object>()
+                            ?? pt.Field("_name")?.GetValue<object>())?.ToString() ?? "",
+                        Description = (pt.Property("Description")?.GetValue<object>()
+                            ?? pt.Field("_description")?.GetValue<object>())?.ToString() ?? "",
                         CanUse = pt.Property("CanUse")?.GetValue<bool>()
                             ?? pt.Field("_canUse")?.GetValue<bool>()
                             ?? true,
@@ -411,6 +400,28 @@ public static class GameStateApi
     public static PlayerState ExtractPlayerState(object gamePlayer)
     {
         DumpObjectOnce(gamePlayer, "Player");
+
+        // Also dump base type (Creature) properties for HP/Block discovery
+        var baseType = gamePlayer.GetType().BaseType;
+        if (baseType != null && _dumpedTypes.Add("BASE:" + baseType.FullName))
+        {
+            GD.Print($"[SpireSense DEBUG] === Player BaseType: {baseType.FullName} ===");
+            foreach (var prop in baseType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                try
+                {
+                    var val = prop.GetValue(gamePlayer);
+                    var valStr = val?.ToString() ?? "null";
+                    if (valStr.Length > 100) valStr = valStr.Substring(0, 100) + "...";
+                    GD.Print($"[SpireSense DEBUG]   BASE PROP {prop.Name} ({prop.PropertyType.Name}): {valStr}");
+                }
+                catch (System.Exception ex)
+                {
+                    GD.Print($"[SpireSense DEBUG]   BASE PROP {prop.Name} ({prop.PropertyType.Name}): ERROR {ex.Message}");
+                }
+            }
+        }
+
         var traverse = Traverse.Create(gamePlayer);
 
         return new PlayerState

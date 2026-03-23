@@ -55,15 +55,12 @@ public static class PotionPatch
                     var potionTraverse = Traverse.Create(potionObj);
                     potionInfo = new PotionInfo
                     {
-                        Id = potionTraverse.Property("PotionId")?.GetValue<string>()
-                            ?? potionTraverse.Field("_potionId")?.GetValue<string>()
-                            ?? "",
-                        Name = potionTraverse.Property("Name")?.GetValue<string>()
-                            ?? potionTraverse.Field("_name")?.GetValue<string>()
-                            ?? "",
-                        Description = potionTraverse.Property("Description")?.GetValue<string>()
-                            ?? potionTraverse.Field("_description")?.GetValue<string>()
-                            ?? "",
+                        Id = (potionTraverse.Property("PotionId")?.GetValue<object>()
+                            ?? potionTraverse.Field("_potionId")?.GetValue<object>())?.ToString() ?? "",
+                        Name = (potionTraverse.Property("Name")?.GetValue<object>()
+                            ?? potionTraverse.Field("_name")?.GetValue<object>())?.ToString() ?? "",
+                        Description = (potionTraverse.Property("Description")?.GetValue<object>()
+                            ?? potionTraverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
                         CanUse = false, // Already used
                     };
                 }
@@ -72,9 +69,8 @@ public static class PotionPatch
                 if (targetObj != null)
                 {
                     var targetTraverse = Traverse.Create(targetObj);
-                    targetName = targetTraverse.Property("Name")?.GetValue<string>()
-                        ?? targetTraverse.Field("_name")?.GetValue<string>()
-                        ?? "";
+                    targetName = (targetTraverse.Property("Name")?.GetValue<object>()
+                        ?? targetTraverse.Field("_name")?.GetValue<object>())?.ToString() ?? "";
                 }
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent
@@ -135,15 +131,12 @@ public static class PotionPatch
                 var potionTraverse = Traverse.Create(potionObj);
                 var potionInfo = new PotionInfo
                 {
-                    Id = potionTraverse.Property("PotionId")?.GetValue<string>()
-                        ?? potionTraverse.Field("_potionId")?.GetValue<string>()
-                        ?? "",
-                    Name = potionTraverse.Property("Name")?.GetValue<string>()
-                        ?? potionTraverse.Field("_name")?.GetValue<string>()
-                        ?? "",
-                    Description = potionTraverse.Property("Description")?.GetValue<string>()
-                        ?? potionTraverse.Field("_description")?.GetValue<string>()
-                        ?? "",
+                    Id = (potionTraverse.Property("PotionId")?.GetValue<object>()
+                        ?? potionTraverse.Field("_potionId")?.GetValue<object>())?.ToString() ?? "",
+                    Name = (potionTraverse.Property("Name")?.GetValue<object>()
+                        ?? potionTraverse.Field("_name")?.GetValue<object>())?.ToString() ?? "",
+                    Description = (potionTraverse.Property("Description")?.GetValue<object>()
+                        ?? potionTraverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
                     CanUse = true,
                 };
 

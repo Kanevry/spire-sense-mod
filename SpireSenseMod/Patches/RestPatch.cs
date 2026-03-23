@@ -55,15 +55,14 @@ public static class RestPatch
                         var optTraverse = Traverse.Create(option);
                         restOptions.Add(new RestOption
                         {
-                            Id = optTraverse.Property("OptionId")?.GetValue<string>()
-                                ?? optTraverse.Field("_optionId")?.GetValue<string>()
+                            Id = (optTraverse.Property("OptionId")?.GetValue<object>()
+                                ?? optTraverse.Field("_optionId")?.GetValue<object>())?.ToString()
                                 ?? option.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant(),
-                            Name = optTraverse.Property("Title")?.GetValue<string>()
-                                ?? optTraverse.Field("_title")?.GetValue<string>()
+                            Name = (optTraverse.Property("Title")?.GetValue<object>()
+                                ?? optTraverse.Field("_title")?.GetValue<object>())?.ToString()
                                 ?? option.GetType().Name.Replace("RestSiteOption", ""),
-                            Description = optTraverse.Property("Description")?.GetValue<string>()
-                                ?? optTraverse.Field("_description")?.GetValue<string>()
-                                ?? "",
+                            Description = (optTraverse.Property("Description")?.GetValue<object>()
+                                ?? optTraverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
                             Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
                                 ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
                                 ?? true,
