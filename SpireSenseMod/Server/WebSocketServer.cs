@@ -30,7 +30,7 @@ public class WebSocketServer : IDisposable
 
     // Batch queue: events are queued here and flushed periodically or when full
     private readonly ConcurrentQueue<GameEvent> _batchQueue = new();
-    private Timer? _batchTimer;
+    private System.Threading.Timer? _batchTimer;
     private int _flushing; // 0 = idle, 1 = flushing (used as a spinlock via Interlocked)
 
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(30);
@@ -62,7 +62,7 @@ public class WebSocketServer : IDisposable
         _pingTask = Task.Run(() => PingLoop(_cts.Token));
 
         // Start the batch flush timer (fires every 50ms)
-        _batchTimer = new Timer(_ => FlushBatchQueue(), null, BatchInterval, BatchInterval);
+        _batchTimer = new System.Threading.Timer(_ => FlushBatchQueue(), null, BatchInterval, BatchInterval);
     }
 
     public void Stop()
