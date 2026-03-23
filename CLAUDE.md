@@ -9,7 +9,7 @@
 - **Patching:** Harmony 2.4.2 (runtime method patching via `[HarmonyPatch]`, .NET 9 native)
 - **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
-- **Status:** Early Access -- all Harmony patch targets are commented out (placeholder class/method names need verification via game DLL decompilation)
+- **Status:** Production — 20 Harmony patch targets verified via sts2.dll decompilation (8 patch files, observation-only)
 - **Debug Mode:** `Plugin.DebugMode = true` enables TypeDiscovery (runtime assembly scanning)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
 
