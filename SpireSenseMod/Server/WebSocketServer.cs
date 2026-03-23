@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
@@ -13,6 +14,9 @@ namespace SpireSenseMod;
 /// <summary>
 /// WebSocket server for real-time game event streaming.
 /// Clients connect at ws://localhost:8081 to receive live updates.
+///
+/// Events are batched (50ms interval, max 10 per batch) to reduce
+/// network overhead during rapid game events like combat.
 /// </summary>
 public class WebSocketServer : IDisposable
 {
@@ -24,9 +28,16 @@ public class WebSocketServer : IDisposable
     private Task? _pingTask;
     private bool _disposed;
 
+    // Batch queue: events are queued here and flushed periodically or when full
+    private readonly ConcurrentQueue<GameEvent> _batchQueue = new();
+    private Timer? _batchTimer;
+    private int _flushing; // 0 = idle, 1 = flushing (used as a spinlock via Interlocked)
+
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BatchInterval = TimeSpan.FromMilliseconds(50);
     private const int MaxPendingSends = 10;
+    private const int BatchFlushThreshold = 10;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -41,7 +52,7 @@ public class WebSocketServer : IDisposable
         _listener.Prefixes.Add($"http://localhost:{port + 1}/");
 
         // Subscribe to game events
-        _stateTracker.OnGameEvent += BroadcastEvent;
+        _stateTracker.OnGameEvent += EnqueueEvent;
     }
 
     public void Start()
@@ -49,12 +60,22 @@ public class WebSocketServer : IDisposable
         _listener.Start();
         Task.Run(() => AcceptLoop(_cts.Token));
         _pingTask = Task.Run(() => PingLoop(_cts.Token));
+
+        // Start the batch flush timer (fires every 50ms)
+        _batchTimer = new Timer(_ => FlushBatchQueue(), null, BatchInterval, BatchInterval);
     }
 
     public void Stop()
     {
         _cts.Cancel();
-        _stateTracker.OnGameEvent -= BroadcastEvent;
+        _stateTracker.OnGameEvent -= EnqueueEvent;
+
+        // Stop and dispose batch timer
+        _batchTimer?.Dispose();
+        _batchTimer = null;
+
+        // Flush any remaining queued events before shutdown
+        FlushBatchQueue();
 
         // Observe the ping task to prevent unobserved task exceptions
         if (_pingTask != null)
@@ -85,6 +106,56 @@ public class WebSocketServer : IDisposable
         Stop();
     }
 
+    /// <summary>
+    /// Enqueues a game event for batched broadcast. If the queue reaches the
+    /// flush threshold, triggers an immediate flush to keep latency low.
+    /// </summary>
+    private void EnqueueEvent(GameEvent gameEvent)
+    {
+        _batchQueue.Enqueue(gameEvent);
+
+        // Trigger immediate flush if the batch is full
+        if (_batchQueue.Count >= BatchFlushThreshold)
+        {
+            FlushBatchQueue();
+        }
+    }
+
+    /// <summary>
+    /// Drains the batch queue and broadcasts all pending events to connected clients.
+    /// Uses Interlocked to ensure only one flush runs at a time.
+    /// </summary>
+    private void FlushBatchQueue()
+    {
+        // Prevent concurrent flushes — only one thread enters at a time
+        if (Interlocked.CompareExchange(ref _flushing, 1, 0) != 0)
+            return;
+
+        try
+        {
+            var events = new List<GameEvent>();
+            while (_batchQueue.TryDequeue(out var evt))
+            {
+                events.Add(evt);
+            }
+
+            if (events.Count == 0) return;
+
+            // Broadcast all drained events
+            _ = Task.Run(async () =>
+            {
+                foreach (var gameEvent in events)
+                {
+                    await BroadcastEventToClients(gameEvent);
+                }
+            });
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _flushing, 0);
+        }
+    }
+
     private async Task AcceptLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -102,6 +173,7 @@ public class WebSocketServer : IDisposable
                     GD.Print($"[SpireSense WS] Client connected: {clientId}");
 
                     // Send current state immediately using pre-serialized snapshot
+                    // (bypasses batch queue — initial state must be sent right away)
                     var stateEvent = new GameEvent
                     {
                         Type = "state_update",
@@ -181,7 +253,7 @@ public class WebSocketServer : IDisposable
                 break;
             }
 
-            var disconnected = new System.Collections.Generic.List<string>();
+            var disconnected = new List<string>();
 
             foreach (var (clientId, ws) in _clients)
             {
@@ -214,46 +286,47 @@ public class WebSocketServer : IDisposable
         }
     }
 
-    private void BroadcastEvent(GameEvent gameEvent)
+    /// <summary>
+    /// Broadcasts a single event to all connected clients. Respects per-client backpressure.
+    /// Called from the batch flush task — not directly from event handlers.
+    /// </summary>
+    private async Task BroadcastEventToClients(GameEvent gameEvent)
     {
-        _ = Task.Run(async () =>
+        var disconnected = new List<string>();
+
+        foreach (var (clientId, ws) in _clients)
         {
-            var disconnected = new System.Collections.Generic.List<string>();
-
-            foreach (var (clientId, ws) in _clients)
+            try
             {
-                try
+                // Backpressure: skip clients with too many pending sends
+                var pending = _pendingSends.GetOrAdd(clientId, 0);
+                if (pending >= MaxPendingSends)
                 {
-                    // Backpressure: skip clients with too many pending sends
-                    var pending = _pendingSends.GetOrAdd(clientId, 0);
-                    if (pending >= MaxPendingSends)
-                    {
-                        GD.Print($"[SpireSense WS] Backpressure: skipping client {clientId} ({pending} pending)");
-                        continue;
-                    }
-
-                    if (ws.State == WebSocketState.Open)
-                    {
-                        await SendToClient(clientId, ws, gameEvent);
-                    }
-                    else
-                    {
-                        disconnected.Add(clientId);
-                    }
+                    GD.Print($"[SpireSense WS] Backpressure: skipping client {clientId} ({pending} pending)");
+                    continue;
                 }
-                catch (Exception ex)
+
+                if (ws.State == WebSocketState.Open)
                 {
-                    GD.PrintErr($"[SpireSense WS] Broadcast error for {clientId}: {ex.Message}");
+                    await SendToClient(clientId, ws, gameEvent);
+                }
+                else
+                {
                     disconnected.Add(clientId);
                 }
             }
-
-            foreach (var id in disconnected)
+            catch (Exception ex)
             {
-                _clients.TryRemove(id, out _);
-                _pendingSends.TryRemove(id, out _);
+                GD.PrintErr($"[SpireSense WS] Broadcast error for {clientId}: {ex.Message}");
+                disconnected.Add(clientId);
             }
-        });
+        }
+
+        foreach (var id in disconnected)
+        {
+            _clients.TryRemove(id, out _);
+            _pendingSends.TryRemove(id, out _);
+        }
     }
 
     private async Task SendToClient(string clientId, WebSocket ws, GameEvent gameEvent)

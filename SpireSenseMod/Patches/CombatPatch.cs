@@ -16,6 +16,7 @@ namespace SpireSenseMod.Patches;
 ///   - Constructor: PlayCardAction(CardModel, Creature?)
 ///   - ExecuteAction() — plays the card
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class CombatPatch
 {
     /// <summary>

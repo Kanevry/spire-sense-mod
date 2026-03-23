@@ -13,6 +13,7 @@ namespace SpireSenseMod.Patches;
 ///   - ShowScreen() — static, shows reward screen
 ///   - SelectCard(NCardHolder) — player picks a card
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class CardRewardPatch
 {
     /// <summary>

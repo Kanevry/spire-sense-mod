@@ -22,6 +22,7 @@ namespace SpireSenseMod.Patches;
 /// - NRestSiteButton (MegaCrit.Sts2.Core.Nodes.RestSite)
 ///   - SelectOption(RestSiteOption) — async, selects option
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class RestPatch
 {
     /// <summary>

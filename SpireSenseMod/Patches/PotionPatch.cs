@@ -18,6 +18,7 @@ namespace SpireSenseMod.Patches;
 /// - Player (MegaCrit.Sts2.Core.Entities.Players)
 ///   - Events: PotionProcured, PotionDiscarded, UsedPotionRemoved
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class PotionPatch
 {
     /// <summary>

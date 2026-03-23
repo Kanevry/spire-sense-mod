@@ -18,19 +18,15 @@
 ```bash
 dotnet build                    # Build DLL (auto-deploys to mods folder if STS2GamePath set)
 dotnet build -c Release         # Release build
-```
-
-dotnet test SpireSenseMod.Tests  # xUnit tests (34 tests, no Godot dependency)
+dotnet test SpireSenseMod.Tests # xUnit tests (106 tests, no Godot dependency)
 ```
 
 ## CI Pipeline
 
 GitHub Actions (`.github/workflows/build.yml`):
-- **test job** (ubuntu, no Godot): xUnit tests via source-file linking
+- **test job** (ubuntu, no Godot): xUnit tests via source-file linking — all 106 tests must pass
 - **build job** (ubuntu): `dotnet restore` + `dotnet format` + `dotnet build -c Release /p:TreatWarningsAsErrors=true`
 - **release job** (on `v*` tags): Creates `SpireSense-v{version}.zip` with SHA256 checksums
-
-```bash
 
 ## Setup
 
@@ -48,7 +44,7 @@ SpireSenseMod/
     GameState.cs         # Full snapshot: screen, character, act, floor, deck, relics, combat, map, shop, events
     CardInfo.cs          # Card with id, name, type, rarity, cost, tags, upgraded
     CombatState.cs       # Combat + PlayerState + MonsterInfo + PowerInfo + PotionInfo + MapNode + EventOption + RelicInfo
-  Patches/               # Harmony patches (all targets currently commented out)
+  Patches/               # Harmony patches — all use [HarmonyPriority(Priority.HigherThanNormal)]
     CardRewardPatch.cs   # Card reward shown/picked
     CombatPatch.cs       # Combat start/end, turn start, card played
     MapPatch.cs          # Floor/map navigation
@@ -59,7 +55,7 @@ SpireSenseMod/
     PotionPatch.cs       # Potion usage and acquisition
   Server/
     HttpServer.cs        # HttpListener on localhost:8080, CORS, 5s timeout, /api/version
-    WebSocketServer.cs   # HttpListener on localhost:8081, broadcast with backpressure (max 10 pending, 5s send timeout)
+    WebSocketServer.cs   # HttpListener on localhost:8081, batched broadcast (50ms / 10 msgs), backpressure
     GameStateApi.cs      # Extracts game objects to models via Harmony Traverse (ExtractCards, ExtractPowers, ExtractPotions)
   Overlay/
     OverlayManager.cs    # Godot CanvasLayer (layer 100), lazy-inits on scene tree
@@ -68,6 +64,29 @@ SpireSenseMod/
     CardTiers/           # Empty -- planned for static tier data
     TypeDiscovery.cs     # Runtime assembly scanner for STS2 class name verification (debug mode only)
 ```
+
+## Thread-Safety Model
+
+- **GameStateTracker:** Central state protected by `lock(_lock)`. All mutations serialize under the lock and produce an immutable JSON snapshot string. Readers get the pre-serialized snapshot — no deserialization race conditions.
+- **Event Buffer:** Separate `_eventLock` protects the ring buffer (max 100 events). Events are appended under lock, reads return snapshot lists.
+- **WebSocket Broadcast:** Events are queued in a `ConcurrentQueue<GameEvent>` and flushed by a 50ms `Timer` (or immediately when the queue reaches 10 messages). An `Interlocked` guard prevents concurrent flushes.
+- **Patch Thread:** Harmony postfix patches run on the game's main thread. They call `GameStateTracker.UpdateState()` which acquires the lock, mutates, serializes, and emits events.
+- **Rule:** Never hold `_lock` and `_eventLock` simultaneously. Never modify `GameStateTracker._currentState` outside the lock.
+
+## Patch Priorities
+
+All 8 Harmony patch classes use `[HarmonyPriority(Priority.HigherThanNormal)]` (600). This ensures SpireSense patches run after core game logic completes but before any other third-party mod patches that might transform the data. The priority is applied at the class level, affecting all methods within.
+
+## WebSocket Batching
+
+Events are not sent immediately. Instead:
+1. `EnqueueEvent()` adds to a `ConcurrentQueue<GameEvent>`
+2. A `System.Threading.Timer` fires every 50ms to flush the queue
+3. If the queue reaches 10 messages before the timer fires, an immediate flush is triggered
+4. Initial `state_update` on client connect bypasses the batch queue for instant delivery
+5. Existing backpressure (max 10 pending sends per client, 5s send timeout) is preserved
+
+This reduces network overhead during rapid combat events where multiple state changes happen within milliseconds.
 
 ## API Protocol
 
@@ -93,22 +112,24 @@ Events: `state_update`, `card_rewards_shown`, `card_picked`, `card_played`, `rel
 
 Backpressure: max 10 pending sends per client, 5s send timeout. Slow clients are skipped and logged.
 
+Batching: events queued and flushed every 50ms or at 10-message threshold. Initial state bypasses queue.
+
 ## Game Integration
 
 - **Framework:** Godot.NET.Sdk -- uses `GD.Print()` for logging, `Engine.GetMainLoop()` for scene access
-- **Patching:** Harmony `PatchAll()` on assembly load. Patches use `[HarmonyPostfix]` to observe without modifying.
+- **Patching:** Harmony `PatchAll()` on assembly load. Patches use `[HarmonyPostfix]` to observe without modifying. All patches at `Priority.HigherThanNormal` (600).
 - **State Extraction:** `GameStateApi` uses `Harmony.Traverse` to reflectively read private/internal fields from game objects
 - **Overlay:** `CanvasLayer` at layer 100, attached to scene tree root via `CallDeferred`
-- **Patch Status:** All `[HarmonyPatch]` attributes are commented out. Target class names (e.g., `CardRewardScreen`, `CombatManager`, `TurnManager`, `DeckManager`, `MapManager`, `RunManager`) are educated guesses that need verification against actual game DLLs.
+- **Patch Status:** All `[HarmonyPatch]` attributes target decompiled class names from sts2.dll (MegaCrit.Sts2.Core namespace). Targets need re-verification per game update.
 
 ## Connection to SpireSense Web App
 
 ```
 STS2 Game Process
-  -> Harmony patches observe game state changes
-  -> GameStateTracker (in-process, thread-safe)
+  -> Harmony patches observe game state changes (HigherThanNormal priority)
+  -> GameStateTracker (in-process, thread-safe, lock + immutable snapshots)
   -> HTTP Server (localhost:8080) -- polled by web app
-  -> WebSocket Server (localhost:8081) -- real-time push to web app overlay
+  -> WebSocket Server (localhost:8081) -- batched real-time push (50ms / 10 msgs)
 
 SpireSense Web App (spiresense.app/overlay)
   -> WebSocket client (src/hooks/use-game-state.ts) connects to ws://localhost:8081
@@ -126,4 +147,6 @@ SpireSense Web App (spiresense.app/overlay)
 - **System.Text.Json** over Newtonsoft -- built into .NET 9, no extra dependency
 - **Broadcast-only WebSocket** -- simpler protocol, web app never sends commands to mod
 - **Traverse reflection** -- avoids compile-time dependency on game assemblies for field access
-- **Commented-out patches** -- game is Early Access, class names change frequently; targets must be re-verified per update
+- **HigherThanNormal priority** -- ensures SpireSense reads stable game state before other mods transform it
+- **50ms batch interval** -- balances latency vs. network overhead during rapid combat events
+- **Immutable snapshots** -- serialized under lock, broadcast without holding locks

@@ -18,6 +18,7 @@ namespace SpireSenseMod.Patches;
 ///   - Launch() — starts the run, returns RunState
 ///   - OnEnded(bool isVictory) — run ended
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class DeckPatch
 {
     /// <summary>

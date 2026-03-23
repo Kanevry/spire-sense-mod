@@ -19,6 +19,7 @@ namespace SpireSenseMod.Patches;
 /// - MerchantInventory (MegaCrit.Sts2.Core.Entities.Merchant) — data model
 ///   - MerchantCardEntry, MerchantRelicEntry, MerchantPotionEntry — item types
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class ShopPatch
 {
     /// <summary>

@@ -14,6 +14,7 @@ namespace SpireSenseMod.Patches;
 ///   - EnterMapCoordInternal(MapCoord, AbstractRoom?, bool) — internal travel
 /// - RunState has CurrentActIndex, ActFloor, TotalFloor, CurrentRoom, Map
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class MapPatch
 {
     /// <summary>

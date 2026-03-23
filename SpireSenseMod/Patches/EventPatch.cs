@@ -20,6 +20,7 @@ namespace SpireSenseMod.Patches;
 ///   - OnRelease() — button clicked (choice made)
 ///   - Properties: Event, Option
 /// </summary>
+[HarmonyPriority(Priority.HigherThanNormal)]
 public static class EventPatch
 {
     /// <summary>
