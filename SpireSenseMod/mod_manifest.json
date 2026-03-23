@@ -1,10 +1,11 @@
 {
-  "Id": "SpireSense",
-  "Name": "SpireSense",
-  "Version": "0.1.0",
-  "Description": "AI-powered companion — Tier Overlay, Deck Tracker, and AI Coach integration for Slay the Spire 2",
-  "Author": "Kanevry",
-  "ModVersion": "0.1.0",
-  "Dependencies": [],
-  "Incompatibilities": []
+  "id": "SpireSenseMod",
+  "name": "SpireSense",
+  "author": "Kanevry",
+  "description": "AI-powered companion — Tier Overlay, Deck Tracker, and AI Coach integration for Slay the Spire 2",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false
 }

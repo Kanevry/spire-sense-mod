@@ -22,7 +22,7 @@
   <!-- Copy output to STS2 mods folder on build -->
   <Target Name="DeployToMods" AfterTargets="Build" Condition="'$(STS2GamePath)' != ''">
     <PropertyGroup>
-      <ModOutputPath>$(STS2GamePath)/mods/SpireSense</ModOutputPath>
+      <ModOutputPath>$(STS2GamePath)/mods/SpireSenseMod</ModOutputPath>
     </PropertyGroup>
     <MakeDir Directories="$(ModOutputPath)" />
     <Copy SourceFiles="$(OutputPath)SpireSenseMod.dll" DestinationFolder="$(ModOutputPath)" />

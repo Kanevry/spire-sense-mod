@@ -16,6 +16,52 @@ namespace SpireSenseMod;
 /// </summary>
 public static class GameStateApi
 {
+    private static readonly HashSet<string> _dumpedTypes = new();
+
+    /// <summary>
+    /// Dump all public properties and fields of an object (once per type) for debugging.
+    /// </summary>
+    public static void DumpObjectOnce(object obj, string label)
+    {
+        var typeName = obj.GetType().FullName ?? obj.GetType().Name;
+        if (!_dumpedTypes.Add(typeName)) return; // Already dumped this type
+
+        GD.Print($"[SpireSense DEBUG] === {label}: {typeName} ===");
+        var type = obj.GetType();
+
+        // Properties
+        foreach (var prop in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+        {
+            try
+            {
+                var val = prop.GetValue(obj);
+                var valStr = val?.ToString() ?? "null";
+                if (valStr.Length > 100) valStr = valStr.Substring(0, 100) + "...";
+                GD.Print($"[SpireSense DEBUG]   PROP {prop.Name} ({prop.PropertyType.Name}): {valStr}");
+            }
+            catch (System.Exception ex)
+            {
+                GD.Print($"[SpireSense DEBUG]   PROP {prop.Name} ({prop.PropertyType.Name}): ERROR {ex.Message}");
+            }
+        }
+
+        // Fields
+        foreach (var field in type.GetFields(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+        {
+            try
+            {
+                var val = field.GetValue(obj);
+                var valStr = val?.ToString() ?? "null";
+                if (valStr.Length > 100) valStr = valStr.Substring(0, 100) + "...";
+                GD.Print($"[SpireSense DEBUG]   FIELD {field.Name} ({field.FieldType.Name}): {valStr}");
+            }
+            catch (System.Exception ex)
+            {
+                GD.Print($"[SpireSense DEBUG]   FIELD {field.Name} ({field.FieldType.Name}): ERROR {ex.Message}");
+            }
+        }
+    }
+
     /// <summary>
     /// Extract card info from a game CardModel object.
     /// CardModel properties: CardId, Name, CardType, Rarity, EnergyCost, Description, IsUpgraded
@@ -24,38 +70,48 @@ public static class GameStateApi
     {
         try
         {
+            DumpObjectOnce(gameCard, "CardModel");
             var traverse = Traverse.Create(gameCard);
+
+            // Card ID from CanonicalInstance (e.g., "CARD.IRON_WAVE (54965706)" → "iron_wave")
+            var canonicalStr = traverse.Property("CanonicalInstance")?.GetValue<object>()?.ToString() ?? "";
+            var cardId = "";
+            if (canonicalStr.StartsWith("CARD."))
+            {
+                var spaceIdx = canonicalStr.IndexOf(' ');
+                cardId = (spaceIdx > 5 ? canonicalStr.Substring(5, spaceIdx - 5) : canonicalStr.Substring(5)).ToLowerInvariant();
+            }
+
+            // Title is a plain String, Description is LocString (use ToString)
+            var name = traverse.Property("Title")?.GetValue<string>() ?? "";
+            var desc = traverse.Property("Description")?.GetValue<object>()?.ToString() ?? "";
+
+            // EnergyCost is CardEnergyCost type — use ToString to get the value
+            var energyCostObj = traverse.Property("EnergyCost")?.GetValue<object>();
+            var energyCostStr = energyCostObj?.ToString() ?? "0";
+            int.TryParse(energyCostStr, out var cost);
+
+            // Character from Pool (e.g., "CARD_POOL.IRONCLAD_CARD_POOL (44127137)" → "ironclad")
+            var poolStr = traverse.Property("Pool")?.GetValue<object>()?.ToString() ?? "";
+            var character = "neutral";
+            if (poolStr.Contains("IRONCLAD")) character = "ironclad";
+            else if (poolStr.Contains("SILENT")) character = "silent";
+            else if (poolStr.Contains("DEFECT")) character = "defect";
+            else if (poolStr.Contains("REGENT")) character = "regent";
+            else if (poolStr.Contains("NECROBINDER")) character = "necrobinder";
+            else if (poolStr.Contains("DEPRIVED")) character = "deprived";
 
             return new CardInfo
             {
-                Id = traverse.Property("CardId")?.GetValue<string>()
-                    ?? traverse.Field("_cardId")?.GetValue<string>()
-                    ?? "",
-                Name = traverse.Property("Name")?.GetValue<string>()
-                    ?? traverse.Field("_name")?.GetValue<string>()
-                    ?? "",
-                Character = (traverse.Property("CharacterId")?.GetValue<string>()
-                    ?? traverse.Field("_characterId")?.GetValue<string>()
-                    ?? traverse.Property("Color")?.GetValue<object>()?.ToString()
-                    ?? "neutral").ToLowerInvariant(),
-                Type = (traverse.Property("CardType")?.GetValue<object>()?.ToString()
-                    ?? traverse.Field("_cardType")?.GetValue<object>()?.ToString()
-                    ?? "Attack").ToLowerInvariant(),
-                Rarity = (traverse.Property("Rarity")?.GetValue<object>()?.ToString()
-                    ?? traverse.Field("_rarity")?.GetValue<object>()?.ToString()
-                    ?? "Common").ToLowerInvariant(),
-                Cost = traverse.Property("EnergyCost")?.GetValue<int>()
-                    ?? traverse.Field("_energyCost")?.GetValue<int>()
-                    ?? 0,
-                CostUpgraded = traverse.Property("UpgradedEnergyCost")?.GetValue<int>()
-                    ?? traverse.Field("_upgradedEnergyCost")?.GetValue<int>()
-                    ?? 0,
-                Description = traverse.Property("Description")?.GetValue<string>()
-                    ?? traverse.Field("_description")?.GetValue<string>()
-                    ?? "",
-                Upgraded = traverse.Property("IsUpgraded")?.GetValue<bool>()
-                    ?? traverse.Field("_isUpgraded")?.GetValue<bool>()
-                    ?? false,
+                Id = cardId,
+                Name = name,
+                Character = character,
+                Type = (traverse.Property("Type")?.GetValue<object>()?.ToString() ?? "Attack").ToLowerInvariant(),
+                Rarity = (traverse.Property("Rarity")?.GetValue<object>()?.ToString() ?? "Common").ToLowerInvariant(),
+                Cost = cost,
+                CostUpgraded = cost, // TODO: extract upgraded cost from CardEnergyCost
+                Description = desc,
+                Upgraded = traverse.Property("IsUpgraded")?.GetValue<bool>() ?? false,
                 Tags = new List<string>(),
             };
         }
@@ -102,6 +158,7 @@ public static class GameStateApi
     {
         try
         {
+            DumpObjectOnce(gameRelic, "Relic");
             var traverse = Traverse.Create(gameRelic);
 
             return new RelicInfo
@@ -139,6 +196,7 @@ public static class GameStateApi
     /// </summary>
     public static MonsterInfo ExtractMonsterInfo(object gameMonster)
     {
+        DumpObjectOnce(gameMonster, "Monster");
         var traverse = Traverse.Create(gameMonster);
 
         var info = new MonsterInfo
@@ -352,6 +410,7 @@ public static class GameStateApi
     /// </summary>
     public static PlayerState ExtractPlayerState(object gamePlayer)
     {
+        DumpObjectOnce(gamePlayer, "Player");
         var traverse = Traverse.Create(gamePlayer);
 
         return new PlayerState

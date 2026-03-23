@@ -49,7 +49,7 @@ public class WebSocketServer : IDisposable
     {
         _stateTracker = stateTracker;
         _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://localhost:{port + 1}/");
+        _listener.Prefixes.Add($"http://localhost:{port}/");
 
         // Subscribe to game events
         _stateTracker.OnGameEvent += EnqueueEvent;
