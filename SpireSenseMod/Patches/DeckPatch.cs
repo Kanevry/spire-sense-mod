@@ -214,10 +214,10 @@ public static class DeckPatch
                         ?? rsTraverse.Field("_ascensionLevel")?.GetValue<int>()
                         ?? 0;
 
-                    // Get players from RunState — Player.Character gives "CHARACTER.IRONCLAD (id)"
-                    var players = rsTraverse.Field("_players")?.GetValue<object>()
-                        ?? rsTraverse.Property("Players")?.GetValue<object>();
-                    if (players is System.Collections.IEnumerable playerEnum)
+                    // Get players from RunState — use GetCollection for IReadOnlyList
+                    var playerColl = GameStateApi.GetCollection(__result, "Players")
+                        ?? GameStateApi.GetField(__result, "_players") as System.Collections.IEnumerable;
+                    if (playerColl is System.Collections.IEnumerable playerEnum)
                     {
                         foreach (var player in playerEnum)
                         {

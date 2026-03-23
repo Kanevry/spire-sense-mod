@@ -52,8 +52,7 @@ public static class EventPatch
 
                 // Extract event options from CurrentOptions
                 var eventOptions = new List<EventOption>();
-                var options = traverse.Property("CurrentOptions")?.GetValue<object>()
-                    ?? traverse.Field("_currentOptions")?.GetValue<object>();
+                var options = GameStateApi.GetCollection(__instance, "CurrentOptions", "_currentOptions");
 
                 if (options is System.Collections.IEnumerable enumerable)
                 {
@@ -135,11 +134,10 @@ public static class EventPatch
 
                 if (optionObj != null)
                 {
-                    var optTraverse = Traverse.Create(optionObj);
-                    choiceId = optTraverse.Property("OptionId")?.GetValue<string>()
-                        ?? optTraverse.Field("_optionId")?.GetValue<string>();
-                    choiceText = optTraverse.Property("Title")?.GetValue<string>()
-                        ?? optTraverse.Property("Text")?.GetValue<string>();
+                    choiceId = (GameStateApi.GetProp(optionObj, "OptionId")
+                        ?? GameStateApi.GetField(optionObj, "_optionId"))?.ToString();
+                    choiceText = (GameStateApi.GetProp(optionObj, "Title")
+                        ?? GameStateApi.GetProp(optionObj, "Text"))?.ToString();
                 }
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent

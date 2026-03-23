@@ -51,16 +51,11 @@ public static class CombatPatch
                 if (combatStateObj != null)
                 {
                     GameStateApi.DumpObjectOnce(combatStateObj, "CombatState");
-                    var csTraverse = Traverse.Create(combatStateObj);
-                    var enemies = csTraverse.Property("Enemies")?.GetValue<object>()
-                        ?? csTraverse.Property("Creatures")?.GetValue<object>()
-                        ?? csTraverse.Field("_enemies")?.GetValue<object>();
-                    if (enemies is System.Collections.IEnumerable enumerable)
+                    var enemies = GameStateApi.GetCollection(combatStateObj, "Enemies", "_enemies");
+                    if (enemies != null)
                     {
-                        foreach (var monster in enumerable)
-                        {
+                        foreach (var monster in enemies)
                             monsters.Add(GameStateApi.ExtractMonsterInfo(monster));
-                        }
                     }
                 }
 
@@ -74,47 +69,44 @@ public static class CombatPatch
                 // Using direct reflection since Traverse.GetValue on IReadOnlyList can return null
                 if (combatStateObj != null)
                 {
-                    // 1. Get HP/Block from Allies (Creature objects — same type as monsters)
-                    var alliesProp = combatStateObj.GetType().GetProperty("Allies");
-                    GD.Print($"[SpireSense] Allies prop: {alliesProp?.Name ?? "NULL"}, type: {alliesProp?.PropertyType?.Name ?? "?"}");
-                    object? alliesVal = null;
-                    try { alliesVal = alliesProp?.GetValue(combatStateObj); }
-                    catch (System.Exception ex) { GD.Print($"[SpireSense] Allies GetValue error: {ex.Message}"); }
-                    GD.Print($"[SpireSense] Allies val: {alliesVal?.GetType()?.Name ?? "NULL"}, isEnum: {alliesVal is System.Collections.IEnumerable}");
-                    if (alliesVal is System.Collections.IEnumerable allyEnum)
+                    // HP/Block from Allies (Creature objects — same type as monsters)
+                    var allies = GameStateApi.GetCollection(combatStateObj, "Allies", "_allies");
+                    if (allies != null)
                     {
-                        foreach (var ally in allyEnum)
+                        foreach (var ally in allies)
                         {
                             var at = Traverse.Create(ally);
                             combatState.Player.Hp = at.Property("CurrentHp")?.GetValue<int>() ?? 0;
                             combatState.Player.MaxHp = at.Property("MaxHp")?.GetValue<int>() ?? 0;
                             combatState.Player.Block = at.Property("Block")?.GetValue<int>() ?? 0;
-                            GD.Print($"[SpireSense] Player HP from Allies: {combatState.Player.Hp}/{combatState.Player.MaxHp}");
-                            break; // First ally = the player creature
+                            break;
                         }
                     }
 
-                    // 2. Get Gold/MaxEnergy from CombatState.RunState.Players
-                    var rsProp = combatStateObj.GetType().GetProperty("RunState");
-                    var rsVal = rsProp?.GetValue(combatStateObj);
-                    if (rsVal != null)
+                    // Gold/MaxEnergy/Energy + Card Piles from CombatState.RunState.Players
+                    var runState = GameStateApi.GetProp(combatStateObj, "RunState");
+                    var rsPlayers = GameStateApi.GetCollection(runState, "Players")
+                        ?? GameStateApi.GetField(runState, "_players") as System.Collections.IEnumerable;
+                    if (rsPlayers != null)
                     {
-                        var playersField = rsVal.GetType().GetField("_players",
-                            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                        var playersVal = playersField?.GetValue(rsVal);
-                        if (playersVal is System.Collections.IEnumerable playerEnum)
+                        foreach (var player in rsPlayers)
                         {
-                            foreach (var player in playerEnum)
-                            {
-                                var pt = Traverse.Create(player);
-                                combatState.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
-                                combatState.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
-                                GD.Print($"[SpireSense] Player Gold: {combatState.Player.Gold}, MaxEnergy: {combatState.Player.MaxEnergy}");
-                                break;
-                            }
+                            var pt = Traverse.Create(player);
+                            combatState.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                            combatState.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
+                            combatState.Player.Energy = combatState.Player.MaxEnergy;
+
+                            // Card piles from Player.Piles (array of CardPile, each with Type + Cards)
+                            // Card piles extracted below from CombatState._allCards
+                            break;
                         }
                     }
                 }
+
+                // Cache CombatState for RefreshCombatState + extract card piles
+                GameStateApi.CurrentCombatState = combatStateObj;
+                if (combatStateObj != null)
+                    GameStateApi.ExtractCardPilesFromCombat(combatStateObj, combatState);
 
                 Plugin.StateTracker?.SetCombatState(combatState);
                 Plugin.StateTracker?.SetScreen(ScreenType.Combat);
@@ -159,39 +151,55 @@ public static class CombatPatch
             {
                 var traverse = Traverse.Create(__instance);
 
-                // Get CombatState from CombatManager
-                var combatStateObj = traverse.Field("_combatState")?.GetValue<object>()
+                // Get CombatState — try __args first (SetupPlayerTurn may pass it), then fields
+                var combatStateObj = GameStateApi.GetProp(__instance, "State")
+                    ?? GameStateApi.GetField(__instance, "_combatState")
                     ?? traverse.Property("CombatState")?.GetValue<object>();
 
                 Plugin.StateTracker?.UpdateState(state =>
                 {
-                    if (state.Combat != null)
-                    {
-                        state.Combat.Turn++;
+                    if (state.Combat == null || combatStateObj == null) return;
+                    state.Combat.Turn++;
 
-                        // Extract card piles from the first player in CombatState
-                        if (combatStateObj != null)
+                    // Update player HP/Block from Allies (Creature objects)
+                    var allies = GameStateApi.GetCollection(combatStateObj, "Allies", "_allies");
+                    if (allies != null)
+                    {
+                        foreach (var ally in allies)
                         {
-                            var csTraverse = Traverse.Create(combatStateObj);
-                            var players = csTraverse.Property("Allies")?.GetValue<object>();
-                            if (players is System.Collections.IEnumerable playerEnum)
-                            {
-                                foreach (var player in playerEnum)
-                                {
-                                    var playerTraverse = Traverse.Create(player);
-                                    // Player has card piles accessed via the Deck property
-                                    var deck = playerTraverse.Property("Deck")?.GetValue<object>();
-                                    if (deck != null)
-                                    {
-                                        var deckTraverse = Traverse.Create(deck);
-                                        state.Combat.Hand = GameStateApi.ExtractCards(deckTraverse.Property("Hand") ?? deckTraverse.Field("_hand"));
-                                        state.Combat.DrawPile = GameStateApi.ExtractCards(deckTraverse.Property("DrawPile") ?? deckTraverse.Field("_drawPile"));
-                                        state.Combat.DiscardPile = GameStateApi.ExtractCards(deckTraverse.Property("DiscardPile") ?? deckTraverse.Field("_discardPile"));
-                                        state.Combat.ExhaustPile = GameStateApi.ExtractCards(deckTraverse.Property("ExhaustPile") ?? deckTraverse.Field("_exhaustPile"));
-                                    }
-                                    break; // First player only
-                                }
-                            }
+                            var at = Traverse.Create(ally);
+                            state.Combat.Player.Hp = at.Property("CurrentHp")?.GetValue<int>() ?? 0;
+                            state.Combat.Player.MaxHp = at.Property("MaxHp")?.GetValue<int>() ?? 0;
+                            state.Combat.Player.Block = at.Property("Block")?.GetValue<int>() ?? 0;
+                            break;
+                        }
+                    }
+
+                    // Update monsters
+                    var enemies = GameStateApi.GetCollection(combatStateObj, "Enemies", "_enemies");
+                    if (enemies != null)
+                    {
+                        state.Combat.Monsters.Clear();
+                        foreach (var monster in enemies)
+                            state.Combat.Monsters.Add(GameStateApi.ExtractMonsterInfo(monster));
+                    }
+
+                    // Extract card piles from CombatState._allCards
+                    if (combatStateObj != null)
+                        GameStateApi.ExtractCardPilesFromCombat(combatStateObj, state.Combat);
+
+                    // Get energy from RunState.Player
+                    var runState = GameStateApi.GetProp(combatStateObj, "RunState");
+                    var rsPlayers = GameStateApi.GetCollection(runState, "Players")
+                        ?? GameStateApi.GetField(runState, "_players") as System.Collections.IEnumerable;
+                    if (rsPlayers != null)
+                    {
+                        foreach (var player in rsPlayers)
+                        {
+                            var pt = Traverse.Create(player);
+                            state.Combat.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                            state.Combat.Player.Energy = state.Combat.Player.MaxEnergy; // Reset each turn
+                            break;
                         }
                     }
                 });
@@ -230,43 +238,42 @@ public static class CombatPatch
             try
             {
                 GameStateApi.DumpObjectOnce(__instance, "PlayCardAction");
-                var traverse = Traverse.Create(__instance);
 
-                // Try multiple field/property name patterns for the card model
-                var cardModelObj = traverse.Property("CardModel")?.GetValue<object>()
-                    ?? traverse.Field("_cardModel")?.GetValue<object>()
-                    ?? traverse.Field("cardModel")?.GetValue<object>()
-                    ?? traverse.Property("Card")?.GetValue<object>()
-                    ?? traverse.Field("_card")?.GetValue<object>();
-                var targetObj = traverse.Property("Target")?.GetValue<object>()
-                    ?? traverse.Field("_target")?.GetValue<object>();
+                // PlayCardAction has CardModelId (ModelId) and Target (Creature)
+                var cardModelId = GameStateApi.GetProp(__instance, "CardModelId")?.ToString() ?? "";
+                var targetObj = GameStateApi.GetProp(__instance, "Target");
+                var targetName = targetObj != null
+                    ? Traverse.Create(targetObj).Property("Name")?.GetValue<string>() ?? ""
+                    : "";
 
-                if (cardModelObj == null)
+                // Try to get the actual CardModel from the Player's combat cards
+                var playerObj = GameStateApi.GetProp(__instance, "Player");
+                CardInfo cardInfo = new CardInfo { Id = cardModelId, Name = cardModelId };
+
+                // Find the card in the player's piles by ModelId
+                if (playerObj != null)
                 {
-                    GD.Print($"[SpireSense] CardPlayed: cardModel is null, trying all fields...");
-                    // Brute force: try to find any CardModel-typed field
-                    foreach (var field in __instance.GetType().GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance))
+                    var piles = GameStateApi.GetCollection(playerObj, "Piles")
+                        ?? GameStateApi.GetField(playerObj, "_runPiles") as System.Collections.IEnumerable;
+                    if (piles != null)
                     {
-                        var val = field.GetValue(__instance);
-                        if (val != null && val.GetType().Name.Contains("Card") && !val.GetType().Name.Contains("Action"))
+                        foreach (var pile in piles)
                         {
-                            GD.Print($"[SpireSense] Found card-like field: {field.Name} ({field.FieldType.Name}) = {val}");
-                            cardModelObj = val;
-                            break;
+                            if (pile == null) continue;
+                            var cards = GameStateApi.GetCollection(pile, "Cards", "_cards");
+                            if (cards == null) continue;
+                            foreach (var card in cards)
+                            {
+                                var id = GameStateApi.GetProp(card, "Id")?.ToString() ?? "";
+                                if (id == cardModelId)
+                                {
+                                    cardInfo = GameStateApi.ExtractCardInfo(card);
+                                    break;
+                                }
+                            }
+                            if (cardInfo.Name != cardModelId) break; // Found it
                         }
                     }
-                }
-
-                var cardInfo = cardModelObj != null
-                    ? GameStateApi.ExtractCardInfo(cardModelObj)
-                    : new CardInfo();
-
-                var targetName = "";
-                if (targetObj != null)
-                {
-                    var targetTraverse = Traverse.Create(targetObj);
-                    targetName = (targetTraverse.Property("Name")?.GetValue<object>()
-                        ?? targetTraverse.Field("_name")?.GetValue<object>())?.ToString() ?? "";
                 }
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent
@@ -274,6 +281,9 @@ public static class CombatPatch
                     Type = "card_played",
                     Data = new { card = cardInfo, target = targetName },
                 });
+
+                // Refresh combat state after card played (HP, Block, monsters, piles)
+                GameStateApi.RefreshCombatState();
             }
             catch (System.Exception ex)
             {

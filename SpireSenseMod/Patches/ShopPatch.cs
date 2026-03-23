@@ -54,9 +54,8 @@ public static class ShopPatch
                 {
                     var invTraverse = Traverse.Create(inventory);
 
-                    // Extract card entries (MerchantCardEntry)
-                    var cardEntries = invTraverse.Property("CardEntries")?.GetValue<object>()
-                        ?? invTraverse.Field("_cardEntries")?.GetValue<object>();
+                    // Extract card entries (MerchantCardEntry) — use GetCollection for IEnumerable
+                    var cardEntries = GameStateApi.GetCollection(inventory, "CardEntries", "_cardEntries");
                     if (cardEntries is System.Collections.IEnumerable cardEnum)
                     {
                         foreach (var entry in cardEnum)
@@ -79,9 +78,8 @@ public static class ShopPatch
                         }
                     }
 
-                    // Extract relic entries (MerchantRelicEntry)
-                    var relicEntries = invTraverse.Property("RelicEntries")?.GetValue<object>()
-                        ?? invTraverse.Field("_relicEntries")?.GetValue<object>();
+                    // Extract relic entries (MerchantRelicEntry) — use GetCollection for IEnumerable
+                    var relicEntries = GameStateApi.GetCollection(inventory, "RelicEntries", "_relicEntries");
                     if (relicEntries is System.Collections.IEnumerable relicEnum)
                     {
                         foreach (var entry in relicEnum)

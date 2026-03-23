@@ -55,8 +55,8 @@ public static class MapPatch
                 GameStateApi.DumpObjectOnce(__instance, "RunManager");
                 var rmTraverse = Traverse.Create(__instance);
                 // RunManager.State is the RunState (confirmed from dump: <State>k__BackingField)
-                var runState = rmTraverse.Property("State")?.GetValue<object>()
-                    ?? rmTraverse.Field("<State>k__BackingField")?.GetValue<object>()
+                var runState = GameStateApi.GetProp(__instance, "State")
+                    ?? GameStateApi.GetField(__instance, "<State>k__BackingField")
                     ?? rmTraverse.Property("RunState")?.GetValue<object>();
 
                 var floor = y; // Fallback to map Y coordinate

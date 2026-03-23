@@ -18,6 +18,26 @@ public static class GameStateApi
 {
     private static readonly HashSet<string> _dumpedTypes = new();
 
+    /// <summary>Cached reference to the current CombatState for RefreshCombatState.</summary>
+    internal static object? CurrentCombatState;
+
+    // ── Reflection Helpers ──────────────────────────────────────────────
+    // Harmony Traverse.Property().GetValue<object>() returns null for IReadOnlyList<T>
+    // and IEnumerable<T> types. Direct reflection works. Use these helpers everywhere.
+
+    /// <summary>Get a public property value via direct reflection (works for all types including collections).</summary>
+    public static object? GetProp(object? obj, string name)
+        => obj?.GetType().GetProperty(name)?.GetValue(obj);
+
+    /// <summary>Get a private/internal field value via direct reflection.</summary>
+    public static object? GetField(object? obj, string name)
+        => obj?.GetType().GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(obj);
+
+    /// <summary>Get a collection (IEnumerable) from a property, with optional field fallback.</summary>
+    public static System.Collections.IEnumerable? GetCollection(object? obj, string propName, string? fieldFallback = null)
+        => GetProp(obj, propName) as System.Collections.IEnumerable
+            ?? (fieldFallback != null ? GetField(obj, fieldFallback) as System.Collections.IEnumerable : null);
+
     /// <summary>
     /// Resolve a LocString object to its localized text via Godot's TranslationServer.
     /// LocString has LocTable (e.g., "cards") and LocEntryKey (e.g., "RAGE.description").
@@ -162,6 +182,18 @@ public static class GameStateApi
     }
 
     /// <summary>
+    /// Extract a list of cards from an IEnumerable (obtained via GetCollection).
+    /// </summary>
+    public static List<CardInfo> ExtractCardsFromEnum(System.Collections.IEnumerable? source)
+    {
+        var cards = new List<CardInfo>();
+        if (source == null) return cards;
+        foreach (var card in source)
+            cards.Add(ExtractCardInfo(card));
+        return cards;
+    }
+
+    /// <summary>
     /// Extract a list of cards from a game collection (hand, draw pile, discard pile, etc.).
     /// The source should be a Traverse pointing to a CardPile or IEnumerable of CardModel.
     /// </summary>
@@ -256,10 +288,49 @@ public static class GameStateApi
             IntentDamage = traverse.Property("IntentDamage")?.GetValue<int>()
                 ?? traverse.Field("_intentDamage")?.GetValue<int>()
                 ?? 0,
-            Powers = ExtractPowers(traverse.Property("Powers") ?? traverse.Field("_powers")),
+            Powers = ExtractPowersFromEnum(GetCollection(gameMonster, "Powers", "_powers")),
         };
 
         return info;
+    }
+
+    /// <summary>Extract powers from an IEnumerable (obtained via GetCollection).</summary>
+    public static List<PowerInfo> ExtractPowersFromEnum(System.Collections.IEnumerable? source)
+    {
+        var powers = new List<PowerInfo>();
+        if (source == null) return powers;
+        foreach (var power in source)
+        {
+            var pt = Traverse.Create(power);
+            powers.Add(new PowerInfo
+            {
+                Id = (GetProp(power, "PowerId") ?? GetProp(power, "Id"))?.ToString() ?? "",
+                Name = (GetProp(power, "Name"))?.ToString() ?? "",
+                Amount = pt.Property("Amount")?.GetValue<int>()
+                    ?? pt.Property("StackAmount")?.GetValue<int>()
+                    ?? 0,
+            });
+        }
+        return powers;
+    }
+
+    /// <summary>Extract potions from an IEnumerable (obtained via GetCollection).</summary>
+    public static List<PotionInfo> ExtractPotionsFromEnum(System.Collections.IEnumerable? source)
+    {
+        var potions = new List<PotionInfo>();
+        if (source == null) return potions;
+        foreach (var potion in source)
+        {
+            if (potion == null) continue;
+            potions.Add(new PotionInfo
+            {
+                Id = (GetProp(potion, "PotionId") ?? GetProp(potion, "Id"))?.ToString() ?? "",
+                Name = (GetProp(potion, "Name"))?.ToString() ?? "",
+                Description = ResolveLocString(GetProp(potion, "Description")),
+                CanUse = Traverse.Create(potion).Property("CanUse")?.GetValue<bool>() ?? true,
+            });
+        }
+        return potions;
     }
 
     /// <summary>
@@ -355,13 +426,10 @@ public static class GameStateApi
 
         try
         {
-            var traverse = Traverse.Create(mapData);
-            // ActMap has MapPoints or similar collection
-            var nodeCollection = traverse.Property("MapPoints")?.GetValue<object>()
-                ?? traverse.Field("_mapPoints")?.GetValue<object>()
-                ?? traverse.Property("Points")?.GetValue<object>()
-                ?? traverse.Field("_points")?.GetValue<object>();
-            if (nodeCollection is not System.Collections.IEnumerable enumerable) return nodes;
+            // Use GetCollection for IEnumerable map points
+            var enumerable = GetCollection(mapData, "MapPoints", "_mapPoints")
+                ?? GetCollection(mapData, "Points", "_points");
+            if (enumerable == null) return nodes;
 
             foreach (var node in enumerable)
             {
@@ -385,9 +453,8 @@ public static class GameStateApi
 
                 // Extract connection indices from the node's children/connections
                 var connections = new List<int>();
-                var edgeCollection = nt.Property("Children")?.GetValue<object>()
-                    ?? nt.Field("_children")?.GetValue<object>()
-                    ?? nt.Property("Connections")?.GetValue<object>();
+                var edgeCollection = GetCollection(node, "Children", "_children")
+                    ?? GetCollection(node, "Connections");
                 if (edgeCollection is System.Collections.IEnumerable edgeEnum)
                 {
                     foreach (var edge in edgeEnum)
@@ -510,10 +577,110 @@ public static class GameStateApi
                 ?? 0,
             MaxEnergy = maxEnergy,
             Gold = gold,
-            Powers = creatureObj != null
-                ? ExtractPowers(Traverse.Create(creatureObj).Property("Powers") ?? Traverse.Create(creatureObj).Field("_powers"))
-                : new List<PowerInfo>(),
-            Potions = ExtractPotions(traverse.Property("PotionSlots") ?? traverse.Field("_potionSlots")),
+            Powers = ExtractPowersFromEnum(GetCollection(creatureObj, "Powers", "_powers")),
+            Potions = ExtractPotionsFromEnum(GetCollection(gamePlayer, "PotionSlots", "_potionSlots")),
         };
+    }
+
+    /// <summary>
+    /// Extract card piles from Player.Piles (array of CardPile, each with Type + Cards).
+    /// </summary>
+    /// <summary>
+    /// Extract card piles from CombatState._allCards by grouping cards by their Pile.Type.
+    /// Each CardModel has a Pile property pointing to its current CardPile (Hand/DrawPile/etc).
+    /// </summary>
+    public static void ExtractCardPilesFromCombat(object combatState, CombatState combat)
+    {
+        var allCards = GetCollection(combatState, "AllCards")
+            ?? GetField(combatState, "_allCards") as System.Collections.IEnumerable;
+        if (allCards == null) return;
+
+        var hand = new List<CardInfo>();
+        var draw = new List<CardInfo>();
+        var discard = new List<CardInfo>();
+        var exhaust = new List<CardInfo>();
+
+        foreach (var card in allCards)
+        {
+            if (card == null) continue;
+            var pile = GetProp(card, "Pile");
+            var pileType = pile != null ? GetProp(pile, "Type")?.ToString() ?? "" : "";
+            var cardInfo = ExtractCardInfo(card);
+
+            // PileType enum: None, Draw, Hand, Discard, Exhaust, Play, Deck
+            switch (pileType)
+            {
+                case "Hand": hand.Add(cardInfo); break;
+                case "Draw": draw.Add(cardInfo); break;
+                case "Discard": discard.Add(cardInfo); break;
+                case "Exhaust": exhaust.Add(cardInfo); break;
+            }
+        }
+
+        combat.Hand = hand;
+        combat.DrawPile = draw;
+        combat.DiscardPile = discard;
+        combat.ExhaustPile = exhaust;
+        GD.Print($"[SpireSense] Piles: hand={hand.Count}, draw={draw.Count}, discard={discard.Count}, exhaust={exhaust.Count}");
+    }
+
+    /// <summary>
+    /// Refresh the current combat state — updates HP, Block, monsters, card piles.
+    /// Called after card_played and other combat events.
+    /// </summary>
+    public static void RefreshCombatState()
+    {
+        Plugin.StateTracker?.UpdateState(state =>
+        {
+            if (state.Combat == null) return;
+
+            // Find the CombatState from the current game state
+            // We stored it when combat started — now refresh from the live objects
+            // Get RunState from the last known path
+            var rmType = AccessTools.TypeByName("MegaCrit.Sts2.Core.Runs.RunManager");
+            if (rmType == null) return;
+
+            // Try to get RunManager singleton
+            object? runManager = null;
+            try
+            {
+                var instanceProp = rmType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                runManager = instanceProp?.GetValue(null);
+            }
+            catch { /* Not a singleton */ }
+
+            if (runManager == null) return;
+            var runState = GetProp(runManager, "State");
+            if (runState == null) return;
+
+            // Get players for Gold, Energy, Card Piles
+            var players = GetCollection(runState, "Players") ?? GetField(runState, "_players") as System.Collections.IEnumerable;
+            if (players != null)
+            {
+                foreach (var player in players)
+                {
+                    var pt = Traverse.Create(player);
+                    state.Combat.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                    state.Combat.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
+
+                    // Card piles — extracted separately from CombatState below
+
+                    // Get Creature for HP/Block
+                    var creature = GetProp(player, "Creature");
+                    if (creature != null)
+                    {
+                        var ct = Traverse.Create(creature);
+                        state.Combat.Player.Hp = ct.Property("CurrentHp")?.GetValue<int>() ?? state.Combat.Player.Hp;
+                        state.Combat.Player.MaxHp = ct.Property("MaxHp")?.GetValue<int>() ?? state.Combat.Player.MaxHp;
+                        state.Combat.Player.Block = ct.Property("Block")?.GetValue<int>() ?? state.Combat.Player.Block;
+                    }
+                    break;
+                }
+            }
+
+            // Refresh card piles from cached CombatState
+            if (CurrentCombatState != null)
+                ExtractCardPilesFromCombat(CurrentCombatState, state.Combat);
+        });
     }
 }

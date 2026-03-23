@@ -45,8 +45,7 @@ public static class RestPatch
 
                 // RestSiteRoom may store available options or we need to get them from the room
                 var restOptions = new List<RestOption>();
-                var options = traverse.Property("Options")?.GetValue<object>()
-                    ?? traverse.Field("_options")?.GetValue<object>();
+                var options = GameStateApi.GetCollection(__instance, "Options", "_options");
 
                 if (options is System.Collections.IEnumerable enumerable)
                 {
@@ -121,11 +120,11 @@ public static class RestPatch
                 // First arg is the RestSiteOption that was selected
                 var option = __args?.Length > 0 ? __args[0] : __instance;
                 var optTraverse = Traverse.Create(option);
-                var choiceId = optTraverse.Property("OptionId")?.GetValue<string>()
-                    ?? optTraverse.Field("_optionId")?.GetValue<string>()
+                var choiceId = (GameStateApi.GetProp(option, "OptionId")
+                    ?? GameStateApi.GetField(option, "_optionId"))?.ToString()
                     ?? option.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant();
-                var choiceName = optTraverse.Property("Title")?.GetValue<string>()
-                    ?? optTraverse.Field("_title")?.GetValue<string>()
+                var choiceName = (GameStateApi.GetProp(option, "Title")
+                    ?? GameStateApi.GetField(option, "_title"))?.ToString()
                     ?? option.GetType().Name.Replace("RestSiteOption", "");
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent
