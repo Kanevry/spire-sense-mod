@@ -44,6 +44,7 @@ public class HttpServer : IDisposable
     {
         _cts.Cancel();
         _listener.Stop();
+        _listener.Close();
         _cts.Dispose();
     }
 
@@ -70,7 +71,7 @@ public class HttpServer : IDisposable
                     catch (TimeoutException)
                     {
                         GD.PrintErr("[SpireSense HTTP] Request timed out");
-                        try { context.Response.StatusCode = 504; context.Response.Close(); } catch { }
+                        try { context.Response.StatusCode = 504; context.Response.Close(); } catch { GD.PrintErr("[SpireSense HTTP] Failed to send timeout response"); }
                     }
                 }, ct);
             }

@@ -355,10 +355,15 @@ Note: **Deprived** is a 6th character not in our current data.
 ## Hooks System
 
 The `Hook` class (`MegaCrit.Sts2.Core.Hooks.Hook`) is the BEST approach for most patches.
-It provides ~90 static async methods that fire at well-defined game events.
+It provides **144 static methods** (78 async event hooks + 66 synchronous modifier/query hooks).
 All hooks receive strongly-typed parameters (RunState, CombatState, Player, etc.).
+Decompiled from sts2.dll on 2026-03-24.
 
-### Already Subscribed Hooks (11 in HookSubscriptions.cs)
+### Complete Async Event Hooks (78 total)
+
+All `public static async Task` methods on `Hook`. Grouped by category.
+
+#### Already Subscribed Hooks (11 in HookSubscriptions.cs)
 
 | Hook | Parameters | Use Case |
 |---|---|---|
@@ -380,40 +385,189 @@ All hooks receive strongly-typed parameters (RunState, CombatState, Player, etc.
 |---|---|---|
 | `AfterCombatVictory` | IRunState, CombatState?, CombatRoom | Victory only (we use AfterCombatEnd instead) |
 | `AfterCurrentHpChanged` | IRunState, CombatState?, Creature, decimal | HP change tracking |
-| `AfterDamageGiven` | IRunState, CombatState?, Creature, Creature, decimal | Outgoing damage tracking |
-| `AfterDamageReceived` | IRunState, CombatState?, Creature, decimal | Incoming damage tracking |
+| `AfterDamageGiven` | PlayerChoiceContext, CombatState, Creature?, DamageResult, ValueProp, Creature, CardModel? | Outgoing damage tracking |
+| `BeforeDamageReceived` | PlayerChoiceContext, IRunState, CombatState?, Creature, decimal, ValueProp, Creature?, CardModel? | Before incoming damage |
+| `AfterDamageReceived` | PlayerChoiceContext, IRunState, CombatState?, Creature, DamageResult, ValueProp, Creature?, CardModel? | After incoming damage |
 | `AfterCardDrawn` | CombatState, PlayerChoiceContext, CardModel, bool | Card drawn to hand |
 | `AfterCardDiscarded` | CombatState, PlayerChoiceContext, CardModel | Card discarded |
 | `AfterCardExhausted` | CombatState, PlayerChoiceContext, CardModel, bool | Card exhausted |
+| `AfterCardRetained` | CombatState, CardModel | Card retained end of turn |
+| `AfterCardEnteredCombat` | CombatState, CardModel | Card enters combat piles |
+| `AfterCardGeneratedForCombat` | CombatState, CardModel, bool addedByPlayer | Card generated mid-combat |
 | `AfterItemPurchased` | IRunState, Player, MerchantEntry, int goldSpent | Shop purchases |
-| `AfterRestSiteHeal` | IRunState, Player, bool | Healed at rest site |
+| `AfterRestSiteHeal` | IRunState, Player, bool isMimicked | Healed at rest site |
 | `AfterRestSiteSmith` | IRunState, Player | Smithed at rest site |
 | `BeforeRewardsOffered` | IRunState, Player, IReadOnlyList\<Reward\> | Before rewards shown |
 | `AfterRewardTaken` | IRunState, Player, Reward | After any reward taken |
-| `AfterOrbChanneled` | IRunState, CombatState?, OrbModel | Defect orb channeled |
-| `AfterOrbEvoked` | IRunState, CombatState?, OrbModel | Defect orb evoked |
+| `AfterOrbChanneled` | CombatState, PlayerChoiceContext, Player, OrbModel | Defect orb channeled |
+| `AfterOrbEvoked` | PlayerChoiceContext, CombatState, OrbModel, IEnumerable\<Creature\> | Defect orb evoked |
 | `BeforeCardPlayed` | CombatState, CardPlay | Card about to be played |
+| `BeforeCardAutoPlayed` | CombatState, CardModel, Creature?, AutoPlayType | Card auto-played |
 | `BeforeRoomEntered` | IRunState, AbstractRoom | Before entering any room |
 | `BeforeTurnEnd` | CombatState, CombatSide | Turn ending |
 | `AfterTurnEnd` | CombatState, CombatSide | Turn ended |
+| `BeforeSideTurnStart` | CombatState, CombatSide | Before side turn start |
+| `AfterSideTurnStart` | CombatState, CombatSide | After side turn start |
+| `BeforePlayPhaseStart` | CombatState, Player | Before play phase |
 | `AfterGoldGained` | IRunState, Player | Gold changed |
 | `AfterPotionDiscarded` | IRunState, CombatState?, PotionModel | Potion discarded |
+| `AfterActEntered` | IRunState | New act entered |
+| `BeforeAttack` | CombatState, AttackCommand | Before attack resolves |
+| `AfterBlockBroken` | CombatState, Creature | Block broken to 0 |
+| `AfterBlockCleared` | CombatState, Creature | Block cleared |
+| `BeforeBlockGained` | CombatState, Creature, decimal, ValueProp, CardModel? | Before gaining block |
+| `AfterBlockGained` | CombatState, Creature, decimal, ValueProp, CardModel? | After gaining block |
+| `AfterCreatureAddedToCombat` | CombatState, Creature | Creature spawned |
+| `BeforeDeath` | IRunState, CombatState?, Creature | Before creature dies |
+| `AfterDeath` | IRunState, CombatState?, Creature, bool, float | After creature dies |
+| `AfterDiedToDoom` | CombatState, IReadOnlyList\<Creature\> | Died to doom counter |
+| `AfterEnergyReset` | CombatState, Player | Energy reset at turn start |
+| `AfterEnergySpent` | CombatState, CardModel, int | Energy spent on card |
+| `BeforeFlush` | CombatState, Player | Before flush (Regent) |
+| `AfterForge` | CombatState, decimal, Player, AbstractModel? | Forge triggered |
+| `BeforeHandDraw` | CombatState, Player, PlayerChoiceContext | Before hand draw |
+| `AfterHandEmptied` | CombatState, PlayerChoiceContext, Player | Hand emptied |
+| `AfterOstyRevived` | CombatState, Creature | Osty revived |
+| `BeforePotionUsed` | IRunState, CombatState?, PotionModel, Creature? | Before potion use |
+| `BeforePowerAmountChanged` | CombatState, PowerModel, decimal, Creature, Creature?, CardModel? | Before power change |
+| `AfterPowerAmountChanged` | CombatState, PowerModel, decimal, Creature?, CardModel? | After power change |
+| `AfterPreventingBlockClear` | CombatState, AbstractModel, Creature | Block clear prevented |
+| `AfterPreventingDeath` | IRunState, CombatState?, AbstractModel, Creature | Death prevented |
+| `AfterPreventingDraw` | CombatState, AbstractModel | Draw prevented |
+| `AfterShuffle` | CombatState, PlayerChoiceContext, Player | Deck shuffled |
+| `AfterStarsGained` | CombatState, int, Player | Stars gained (Regent) |
+| `AfterStarsSpent` | CombatState, int, Player | Stars spent (Regent) |
+| `AfterSummon` | CombatState, PlayerChoiceContext, Player, decimal | Summon (Necrobinder) |
+| `AfterTakingExtraTurn` | CombatState, Player | Extra turn taken |
+
+### Synchronous Modifier/Query Hooks (66 total)
+
+These hooks modify values or answer queries synchronously (return values, not async):
+
+| Hook | Return Type | Purpose |
+|---|---|---|
+| `ModifyAttackHitCount` | decimal | Modify number of attack hits |
+| `ModifyBlock` | decimal | Modify block amount |
+| `ModifyCardBeingAddedToDeck` | CardModel | Transform card before deck add |
+| `ModifyCardPlayCount` | int | Modify card play repetitions |
+| `ModifyCardPlayResultPileTypeAndPosition` | (PileType, CardPilePosition) | Where card goes after play |
+| `ModifyCardRewardAlternatives` | IEnumerable\<AbstractModel\> | Alter card reward alternatives |
+| `ModifyCardRewardCreationOptions` | CardCreationOptions | Modify card reward creation |
+| `TryModifyCardRewardOptions` | bool | Modify card reward options list |
+| `ModifyCardRewardUpgradeOdds` | decimal | Modify upgrade chance |
+| `ModifyDamage` | decimal | Modify damage amount |
+| `ModifyEnergyCostInCombat` | decimal | Modify card energy cost |
+| `ModifyExtraRestSiteHealText` | IReadOnlyList\<LocString\> | Extra heal text |
+| `ModifyGeneratedMap` | ActMap | Transform generated map |
+| `ModifyHandDraw` | decimal | Modify cards drawn per turn |
+| `ModifyHealAmount` | decimal | Modify healing |
+| `ModifyHpLostBeforeOsty` | decimal | Modify HP loss (pre-Osty) |
+| `ModifyHpLostAfterOsty` | decimal | Modify HP loss (post-Osty) |
+| `ModifyMaxEnergy` | decimal | Modify max energy |
+| `ModifyMerchantCardCreationResults` | void | Modify shop card options |
+| `ModifyMerchantCardPool` | IEnumerable\<CardModel\> | Modify shop card pool |
+| `ModifyMerchantCardRarity` | CardRarity | Modify shop card rarity |
+| `ModifyMerchantPrice` | decimal | Modify shop prices |
+| `ModifyNextEvent` | EventModel | Swap event model |
+| `ModifyOddsIncreaseForUnrolledRoomType` | float | Map generation odds |
+| `ModifyOrbPassiveTriggerCount` | int | Defect orb triggers |
+| `ModifyOrbValue` | decimal | Defect orb value |
+| `ModifyPowerAmountGiven` | decimal | Modify power applied |
+| `ModifyPowerAmountReceived` | decimal | Modify power received |
+| `ModifyRestSiteHealAmount` | decimal | Modify rest heal |
+| `ModifyRestSiteOptions` | IEnumerable\<AbstractModel\> | Add/remove rest options |
+| `ModifyRestSiteHealRewards` | IEnumerable\<AbstractModel\> | Modify rest heal rewards |
+| `ModifyRewards` | IEnumerable\<AbstractModel\> | Modify room rewards |
+| `ModifyShuffleOrder` | void | Modify shuffle order |
+| `ModifyStarCost` | decimal | Modify star cost |
+| `ModifySummonAmount` | decimal | Modify summon amount |
+| `ModifyUnblockedDamageTarget` | Creature | Redirect unblocked damage |
+| `ModifyUnknownMapPointRoomTypes` | IReadOnlySet\<RoomType\> | Unknown map point types |
+| `ModifyXValue` | int | Modify X-cost value |
+| `ShouldAddToDeck` | bool | Allow/prevent deck add |
+| `ShouldAfflict` | bool | Allow affliction |
+| `ShouldAllowAncient` | bool | Allow ancient event |
+| `ShouldAllowHitting` | bool | Allow hitting creature |
+| `ShouldAllowMerchantCardRemoval` | bool | Allow shop card removal |
+| `ShouldAllowSelectingMoreCardRewards` | bool | Allow extra card picks |
+| `ShouldAllowTargeting` | bool | Allow targeting creature |
+| `ShouldClearBlock` | bool | Allow block clear |
+| `ShouldCreatureBeRemovedFromCombatAfterDeath` | bool | Remove dead creature |
+| `ShouldDie` | bool | Allow creature death |
+| `ShouldDisableRemainingRestSiteOptions` | bool | Disable rest options |
+| `ShouldDraw` | bool | Allow card draw |
+| `ShouldEtherealTrigger` | bool | Allow ethereal exhaust |
+| `ShouldFlush` | bool | Allow flush |
+| `ShouldGainGold` | bool | Allow gold gain |
+| `ShouldGenerateTreasure` | bool | Allow treasure generation |
+| `ShouldGainStars` | bool | Allow star gain |
+| `ShouldPayExcessEnergyCostWithStars` | bool | Pay energy with stars |
+| `ShouldPlay` | bool | Allow card play |
+| `ShouldPlayerResetEnergy` | bool | Allow energy reset |
+| `ShouldProceedToNextMapPoint` | bool | Allow map progression |
+| `ShouldProcurePotion` | bool | Allow potion procurement |
+| `ShouldRefillMerchantEntry` | bool | Allow shop refill |
+| `ShouldStopCombatFromEnding` | bool | Prevent combat end |
+| `ShouldTakeExtraTurn` | bool | Allow extra turn |
+| `ShouldForcePotionReward` | bool | Force potion reward |
+| `ShouldPowerBeRemovedOnDeath` | bool | Keep power after death |
 
 ### No Hook Available (requires Harmony)
 
 These game events have no corresponding Hook method and require direct Harmony patches:
 
-| Target | Method | Patch File |
-|---|---|---|
-| `RelicCmd.Obtain` | Relic obtained | DeckPatch.cs |
-| `RunManager.Launch` | Run start | DeckPatch.cs |
-| `RunManager.OnEnded` | Run end | DeckPatch.cs |
-| `MerchantRoom.Exit` | Shop exit | ShopPatch.cs |
-| `EventModel.BeginEvent` | Event start | EventPatch.cs |
-| `NEventOptionButton.OnRelease` | Event choice | EventPatch.cs |
-| `NRestSiteButton.SelectOption` | Rest choice | RestPatch.cs |
-| `NCardRewardSelectionScreen.ShowScreen` | Card rewards shown | CardRewardPatch.cs |
-| `NCardRewardSelectionScreen.SelectCard` | Card picked | CardRewardPatch.cs |
+| Target | Method | Patch File | Migration Notes |
+|---|---|---|---|
+| `RelicCmd.Obtain` | Relic obtained | DeckPatch.cs | NO HOOK -- no `AfterRelicObtained` exists. Must keep Harmony. |
+| `RunManager.Launch` | Run start | DeckPatch.cs | NO HOOK -- no `AfterRunStart`/`BeforeRunStart` exists. Must keep Harmony. |
+| `RunManager.OnEnded` | Run end | DeckPatch.cs | NO HOOK -- no `AfterRunEnd` exists. Must keep Harmony. |
+| `MerchantRoom.Exit` | Shop exit | ShopPatch.cs | NO HOOK -- no `AfterShopExit` exists. Must keep Harmony. |
+| `EventModel.BeginEvent` | Event start | EventPatch.cs | NO HOOK -- no `AfterEventStart` exists. Must keep Harmony. |
+| `NEventOptionButton.OnRelease` | Event choice | EventPatch.cs | NO HOOK -- no `AfterEventChoice` exists. Must keep Harmony. |
+| `NRestSiteButton.SelectOption` | Rest choice | RestPatch.cs | PARTIAL -- `AfterRestSiteHeal` and `AfterRestSiteSmith` cover heal/smith only. No generic `AfterRestSiteOptionSelected` for Dig/Cook/Lift/Mend/Clone/Hatch. |
+| `NCardRewardSelectionScreen.ShowScreen` | Card rewards shown | CardRewardPatch.cs | PARTIAL -- `BeforeRewardsOffered` fires before ALL rewards (not card-specific). Could work if we filter for CardReward type. |
+| `NCardRewardSelectionScreen.SelectCard` | Card picked | CardRewardPatch.cs | PARTIAL -- `AfterRewardTaken` fires for any reward. Could work if we filter for card rewards. |
+
+### Migration Analysis (Session 21 — 2026-03-24)
+
+**CAN migrate (with caveats):**
+
+1. **CardRewardPatch.OnCardRewardsShown** -- Use `BeforeRewardsOffered(IRunState, Player, IReadOnlyList<Reward>)`.
+   - Fires before rewards are shown. Filter `rewards` list for `CardReward` instances.
+   - Caveat: fires for ALL reward types (gold, relic, card, potion). Need type check.
+   - Alternative: `TryModifyCardRewardOptions` fires during card reward generation.
+
+2. **CardRewardPatch.OnCardPicked** -- Use `AfterRewardTaken(IRunState, Player, Reward)`.
+   - Fires after any reward is taken. Filter for `CardReward` type.
+   - Caveat: fires for ALL reward types, not just cards. Need `reward is CardReward` check.
+   - Alternative: `AfterCardChangedPiles` (already subscribed) detects deck adds, but misses the "which reward screen" context.
+
+3. **RestPatch (heal/smith only)** -- Use `AfterRestSiteHeal` + `AfterRestSiteSmith`.
+   - Only covers Heal and Smith options. Other rest options (Dig, Cook, Lift, Mend, Clone, Hatch) have no specific hook.
+   - For our use case (tracking rest choice for game state), this may be sufficient if we only need heal/smith detection.
+
+**CANNOT migrate (no hook exists):**
+
+4. **DeckPatch.OnRelicObtained** -- No `AfterRelicObtained` hook. Must keep `RelicCmd.Obtain` Harmony patch.
+   - Searched for: RelicObtained, RelicAdded, RelicGained, AfterRelic -- none found in Hook class.
+   - `Player.RelicObtained` is a C# event (not a Hook), unusable via [HarmonyPostfix].
+
+5. **DeckPatch.OnRunStart** -- No `AfterRunStart`/`BeforeRunStart` hook. Must keep `RunManager.Launch` Harmony patch.
+   - Searched for: RunStart, RunLaunch, RunBegin, AfterRun -- none found in Hook class.
+   - `RunManager.RunStarted` is a C# event, not a Hook.
+
+6. **DeckPatch.OnRunEnd** -- No `AfterRunEnd`/`BeforeRunEnd` hook. Must keep `RunManager.OnEnded` Harmony patch.
+   - Searched for: RunEnd, RunComplete, RunFinish -- none found in Hook class.
+
+7. **EventPatch.OnEventStarted** -- No `AfterEventStart` hook. Must keep `EventModel.BeginEvent` Harmony patch.
+   - Searched for: EventBegin, EventStart, AfterEvent -- none found in Hook class.
+   - `ModifyNextEvent` exists but modifies the event model, does not notify on event start.
+
+8. **EventPatch.OnEventChoiceMade** -- No `AfterEventChoice` hook. Must keep `NEventOptionButton.OnRelease` Harmony patch.
+   - Searched for: EventChoice, EventOption, AfterEventOption -- none found in Hook class.
+
+9. **ShopPatch.OnShopExit** -- No `AfterShopExit` hook. Must keep `MerchantRoom.Exit` Harmony patch.
+   - `AfterItemPurchased` exists but only fires on purchase, not on exit.
 
 Note: Shop/Rest room *entry* detection is handled by `AfterRoomEntered` (checks `AbstractRoom.RoomType`).
 `MerchantRoom.Enter` and `RestSiteRoom.Enter` patches were removed in Session 20.
@@ -435,3 +589,193 @@ Note: Shop/Rest room *entry* detection is handled by `AfterRoomEntered` (checks 
 5. **Event-driven architecture** -- Many classes expose C# events (e.g., `Player.RelicObtained`, `CombatManager.TurnStarted`, `EventModel.StateChanged`).
 
 6. **Godot Nodes** -- UI classes prefixed with `N` (NMapScreen, NCombatRoom, etc.) are Godot `Node`/`Control` subclasses.
+
+---
+
+## Available STS2 Hooks (v0.99.1)
+
+Complete list of Hook methods from `MegaCrit.Sts2.Core.Hooks.Hook`.
+Decompiled from sts2.dll on 2026-03-24. 78 async event hooks + 66 synchronous modifier/query hooks = 144 total.
+
+### Currently Used by SpireSense (11):
+- `AfterPlayerTurnStart(CombatState, PlayerChoiceContext, Player)`
+- `BeforeCombatStart(IRunState, CombatState?)`
+- `AfterCombatEnd(IRunState, CombatState?, CombatRoom)`
+- `AfterCardPlayed(CombatState, PlayerChoiceContext, CardPlay)`
+- `AfterCardChangedPiles(IRunState, CombatState?, CardModel, PileType, AbstractModel?)`
+- `BeforeCardRemoved(IRunState, CardModel)`
+- `AfterAttack(CombatState, AttackCommand)`
+- `AfterPotionUsed(IRunState, CombatState?, PotionModel, Creature?)`
+- `AfterPotionProcured(IRunState, CombatState?, PotionModel)`
+- `AfterRoomEntered(IRunState, AbstractRoom)`
+- `AfterMapGenerated(IRunState, ActMap, int)`
+
+### Migration Candidates (investigated, non-trivial):
+- `BeforeRewardsOffered(IRunState, Player, IReadOnlyList<Reward>)` -- could replace CardRewardPatch.OnCardRewardsShown
+- `AfterRewardTaken(IRunState, Player, Reward)` -- could replace CardRewardPatch.OnCardPicked
+- `AfterRestSiteHeal(IRunState, Player, bool)` -- partial replacement for RestPatch
+- `AfterRestSiteSmith(IRunState, Player)` -- partial replacement for RestPatch
+- `AfterItemPurchased(IRunState, Player, MerchantEntry, int)` -- supplements ShopPatch
+
+### No Equivalent Hook Available:
+- `RelicCmd.Obtain` (DeckPatch.OnRelicObtained) -- no AfterRelicObtained hook
+- `RunManager.Launch` (DeckPatch.OnRunStart) -- no AfterRunStart hook
+- `RunManager.OnEnded` (DeckPatch.OnRunEnd) -- no AfterRunEnd hook
+- `EventModel.BeginEvent` (EventPatch.OnEventStarted) -- no AfterEventStart hook
+- `NEventOptionButton.OnRelease` (EventPatch.OnEventChoiceMade) -- no AfterEventChoice hook
+- `MerchantRoom.Exit` (ShopPatch.OnShopExit) -- no AfterShopExit hook
+- `NRestSiteButton.SelectOption` (RestPatch, non-heal/smith options) -- only AfterRestSiteHeal/Smith exist
+
+### All 78 Async Event Hooks (alphabetical):
+
+```
+AfterActEntered(IRunState runState)
+AfterAttack(CombatState combatState, AttackCommand command)
+AfterBlockBroken(CombatState combatState, Creature creature)
+AfterBlockCleared(CombatState combatState, Creature creature)
+AfterBlockGained(CombatState combatState, Creature creature, decimal amount, ValueProp props, CardModel? cardSource)
+AfterCardChangedPiles(IRunState runState, CombatState? combatState, CardModel card, PileType oldPile, AbstractModel? source)
+AfterCardDiscarded(CombatState combatState, PlayerChoiceContext choiceContext, CardModel card)
+AfterCardDrawn(CombatState combatState, PlayerChoiceContext choiceContext, CardModel card, bool fromHandDraw)
+AfterCardEnteredCombat(CombatState combatState, CardModel card)
+AfterCardExhausted(CombatState combatState, PlayerChoiceContext choiceContext, CardModel card, bool causedByEthereal)
+AfterCardGeneratedForCombat(CombatState combatState, CardModel card, bool addedByPlayer)
+AfterCardPlayed(CombatState combatState, PlayerChoiceContext choiceContext, CardPlay cardPlay)
+AfterCardRetained(CombatState combatState, CardModel card)
+AfterCombatEnd(IRunState runState, CombatState? combatState, CombatRoom room)
+AfterCombatVictory(IRunState runState, CombatState? combatState, CombatRoom room)
+AfterCreatureAddedToCombat(CombatState combatState, Creature creature)
+AfterCurrentHpChanged(IRunState runState, CombatState? combatState, Creature creature, decimal delta)
+AfterDamageGiven(PlayerChoiceContext choiceContext, CombatState combatState, Creature? dealer, DamageResult results, ValueProp props, Creature target, CardModel? cardSource)
+AfterDamageReceived(PlayerChoiceContext choiceContext, IRunState runState, CombatState? combatState, Creature target, DamageResult result, ValueProp props, Creature? dealer, CardModel? cardSource)
+AfterDeath(IRunState runState, CombatState? combatState, Creature creature, bool wasRemovalPrevented, float deathAnimLength)
+AfterDiedToDoom(CombatState combatState, IReadOnlyList<Creature> creatures)
+AfterEnergyReset(CombatState combatState, Player player)
+AfterEnergySpent(CombatState combatState, CardModel card, int amount)
+AfterForge(CombatState combatState, decimal amount, Player forger, AbstractModel? source)
+AfterGoldGained(IRunState runState, Player player)
+AfterHandEmptied(CombatState combatState, PlayerChoiceContext choiceContext, Player player)
+AfterItemPurchased(IRunState runState, Player player, MerchantEntry itemPurchased, int goldSpent)
+AfterMapGenerated(IRunState runState, ActMap map, int actIndex)
+AfterModifyingBlockAmount(CombatState combatState, decimal modifiedBlock, CardModel? cardSource, CardPlay? cardPlay, IEnumerable<AbstractModel> modifiers)
+AfterModifyingCardPlayCount(CombatState combatState, CardModel card, IEnumerable<AbstractModel> modifiers)
+AfterModifyingCardRewardOptions(IRunState runState, IEnumerable<AbstractModel> modifiers)
+AfterModifyingDamageAmount(IRunState runState, CombatState? combatState, CardModel? cardSource, IEnumerable<AbstractModel> modifiers)
+AfterModifyingHandDraw(CombatState combatState, IEnumerable<AbstractModel> modifiers)
+AfterModifyingHpLostAfterOsty(IRunState runState, CombatState? combatState, IEnumerable<AbstractModel> modifiers)
+AfterModifyingHpLostBeforeOsty(IRunState runState, CombatState? combatState, IEnumerable<AbstractModel> modifiers)
+AfterModifyingOrbPassiveTriggerCount(CombatState combatState, OrbModel orb, IEnumerable<AbstractModel> modifiers)
+AfterModifyingPowerAmountGiven(CombatState combatState, IEnumerable<AbstractModel> modifiers, PowerModel modifiedPower)
+AfterModifyingPowerAmountReceived(CombatState combatState, IEnumerable<AbstractModel> modifiers, PowerModel modifiedPower)
+AfterModifyingRewards(IRunState runState, IEnumerable<AbstractModel> modifiers)
+AfterOrbChanneled(CombatState combatState, PlayerChoiceContext choiceContext, Player player, OrbModel orb)
+AfterOrbEvoked(PlayerChoiceContext choiceContext, CombatState combatState, OrbModel orb, IEnumerable<Creature> targets)
+AfterOstyRevived(CombatState combatState, Creature osty)
+AfterPlayerTurnStart(CombatState combatState, PlayerChoiceContext choiceContext, Player player)
+AfterPotionDiscarded(IRunState runState, CombatState? combatState, PotionModel potion)
+AfterPotionProcured(IRunState runState, CombatState? combatState, PotionModel potion)
+AfterPotionUsed(IRunState runState, CombatState? combatState, PotionModel potion, Creature? target)
+AfterPowerAmountChanged(CombatState combatState, PowerModel power, decimal amount, Creature? applier, CardModel? cardSource)
+AfterPreventingBlockClear(CombatState combatState, AbstractModel preventer, Creature creature)
+AfterPreventingDeath(IRunState runState, CombatState? combatState, AbstractModel preventer, Creature creature)
+AfterPreventingDraw(CombatState combatState, AbstractModel modifier)
+AfterRestSiteHeal(IRunState runState, Player player, bool isMimicked)
+AfterRestSiteSmith(IRunState runState, Player player)
+AfterRewardTaken(IRunState runState, Player player, Reward reward)
+AfterRoomEntered(IRunState runState, AbstractRoom room)
+AfterShuffle(CombatState combatState, PlayerChoiceContext choiceContext, Player shuffler)
+AfterSideTurnStart(CombatState combatState, CombatSide side)
+AfterStarsGained(CombatState combatState, int amount, Player gainer)
+AfterStarsSpent(CombatState combatState, int amount, Player spender)
+AfterSummon(CombatState combatState, PlayerChoiceContext choiceContext, Player summoner, decimal amount)
+AfterTakingExtraTurn(CombatState combatState, Player player)
+AfterTurnEnd(CombatState combatState, CombatSide side)
+BeforeAttack(CombatState combatState, AttackCommand command)
+BeforeBlockGained(CombatState combatState, Creature creature, decimal amount, ValueProp props, CardModel? cardSource)
+BeforeCardAutoPlayed(CombatState combatState, CardModel card, Creature? target, AutoPlayType type)
+BeforeCardPlayed(CombatState combatState, CardPlay cardPlay)
+BeforeCardRemoved(IRunState runState, CardModel card)
+BeforeCombatStart(IRunState runState, CombatState? combatState)
+BeforeDamageReceived(PlayerChoiceContext choiceContext, IRunState runState, CombatState? combatState, Creature target, decimal amount, ValueProp props, Creature? dealer, CardModel? cardSource)
+BeforeDeath(IRunState runState, CombatState? combatState, Creature creature)
+BeforeFlush(CombatState combatState, Player player)
+BeforeHandDraw(CombatState combatState, Player player, PlayerChoiceContext playerChoiceContext)
+BeforePlayPhaseStart(CombatState combatState, Player player)
+BeforePotionUsed(IRunState runState, CombatState? combatState, PotionModel potion, Creature? target)
+BeforePowerAmountChanged(CombatState combatState, PowerModel power, decimal amount, Creature target, Creature? applier, CardModel? cardSource)
+BeforeRewardsOffered(IRunState runState, Player player, IReadOnlyList<Reward> rewards)
+BeforeRoomEntered(IRunState runState, AbstractRoom room)
+BeforeSideTurnStart(CombatState combatState, CombatSide side)
+BeforeTurnEnd(CombatState combatState, CombatSide side)
+```
+
+### All 66 Synchronous Modifier/Query Hooks (alphabetical):
+
+```
+ModifyAttackHitCount(CombatState, AttackCommand, int originalHitCount) -> decimal
+ModifyBlock(CombatState, Creature, decimal, ValueProp, CardModel?, CardPlay?, out IEnumerable<AbstractModel>) -> decimal
+ModifyCardBeingAddedToDeck(IRunState, CardModel, out List<AbstractModel>) -> CardModel
+ModifyCardPlayCount(CombatState, CardModel, int, Creature?, out List<AbstractModel>) -> int
+ModifyCardPlayResultPileTypeAndPosition(CombatState, CardModel, bool, ResourceInfo, PileType, CardPilePosition, out IEnumerable<AbstractModel>) -> (PileType, CardPilePosition)
+ModifyCardRewardAlternatives(IRunState, Player, CardReward, List<CardRewardAlternative>) -> IEnumerable<AbstractModel>
+ModifyCardRewardCreationOptions(IRunState, Player, CardCreationOptions) -> CardCreationOptions
+ModifyCardRewardUpgradeOdds(IRunState, Player, CardModel, decimal) -> decimal
+ModifyDamage(IRunState, CombatState?, Creature?, Creature?, decimal, ValueProp, CardModel?, ModifyDamageHookType, CardPreviewMode, out IEnumerable<AbstractModel>) -> decimal
+ModifyEnergyCostInCombat(CombatState, CardModel, decimal) -> decimal
+ModifyExtraRestSiteHealText(IRunState, Player, IReadOnlyList<LocString>) -> IReadOnlyList<LocString>
+ModifyGeneratedMap(IRunState, ActMap, int) -> ActMap
+ModifyGeneratedMapLate(IRunState, ActMap, int) -> ActMap
+ModifyHandDraw(CombatState, Player, decimal, out IEnumerable<AbstractModel>) -> decimal
+ModifyHealAmount(IRunState, CombatState?, Creature, decimal) -> decimal
+ModifyHpLostAfterOsty(IRunState, CombatState?, Creature, decimal, ValueProp, Creature?, CardModel?, out IEnumerable<AbstractModel>) -> decimal
+ModifyHpLostBeforeOsty(IRunState, CombatState?, Creature, decimal, ValueProp, Creature?, CardModel?, out IEnumerable<AbstractModel>) -> decimal
+ModifyMaxEnergy(CombatState, Player, decimal) -> decimal
+ModifyMerchantCardCreationResults(IRunState, Player, List<CardCreationResult>) -> void
+ModifyMerchantCardPool(IRunState, Player, IEnumerable<CardModel>) -> IEnumerable<CardModel>
+ModifyMerchantCardRarity(IRunState, Player, CardRarity) -> CardRarity
+ModifyMerchantPrice(IRunState, Player, MerchantEntry, decimal) -> decimal
+ModifyNextEvent(IRunState, EventModel) -> EventModel
+ModifyOddsIncreaseForUnrolledRoomType(IRunState, RoomType, float) -> float
+ModifyOrbPassiveTriggerCount(CombatState, OrbModel, int, out List<AbstractModel>) -> int
+ModifyOrbValue(CombatState, Player, decimal) -> decimal
+ModifyPowerAmountGiven(CombatState, PowerModel, Creature, decimal, Creature?, CardModel?, out IEnumerable<AbstractModel>) -> decimal
+ModifyPowerAmountReceived(CombatState, PowerModel, Creature, decimal, Creature?, out IEnumerable<AbstractModel>) -> decimal
+ModifyRestSiteHealAmount(IRunState, Creature, decimal) -> decimal
+ModifyRestSiteHealRewards(IRunState, Player, List<Reward>, bool) -> IEnumerable<AbstractModel>
+ModifyRestSiteOptions(IRunState, Player, ICollection<RestSiteOption>) -> IEnumerable<AbstractModel>
+ModifyRewards(IRunState, Player, List<Reward>, AbstractRoom?) -> IEnumerable<AbstractModel>
+ModifyShuffleOrder(CombatState, Player, List<CardModel>, bool) -> void
+ModifyStarCost(CombatState, CardModel, decimal) -> decimal
+ModifySummonAmount(CombatState, Player, decimal, AbstractModel?) -> decimal
+ModifyUnblockedDamageTarget(CombatState, Creature, decimal, ValueProp, Creature?) -> Creature
+ModifyUnknownMapPointRoomTypes(IRunState, IReadOnlySet<RoomType>) -> IReadOnlySet<RoomType>
+ModifyXValue(CombatState, CardModel, int) -> int
+ShouldAddToDeck(IRunState, CardModel, out AbstractModel?) -> bool
+ShouldAfflict(CombatState, CardModel, AfflictionModel) -> bool
+ShouldAllowAncient(IRunState, Player, AncientEventModel) -> bool
+ShouldAllowHitting(CombatState, Creature) -> bool
+ShouldAllowMerchantCardRemoval(IRunState, Player) -> bool
+ShouldAllowSelectingMoreCardRewards(IRunState, Player, CardReward) -> bool
+ShouldAllowTargeting(CombatState, Creature, out AbstractModel?) -> bool
+ShouldClearBlock(CombatState, Creature, out AbstractModel?) -> bool
+ShouldCreatureBeRemovedFromCombatAfterDeath(CombatState, Creature) -> bool
+ShouldDie(IRunState, CombatState?, Creature, out AbstractModel?) -> bool
+ShouldDisableRemainingRestSiteOptions(IRunState, Player) -> bool
+ShouldDraw(CombatState, Player, bool, out AbstractModel?) -> bool
+ShouldEtherealTrigger(CombatState, CardModel) -> bool
+ShouldFlush(CombatState, Player) -> bool
+ShouldForcePotionReward(IRunState, Player, RoomType) -> bool
+ShouldGainGold(IRunState, CombatState?, decimal, Player) -> bool
+ShouldGainStars(CombatState, decimal, Player) -> bool
+ShouldGenerateTreasure(IRunState, Player) -> bool
+ShouldPayExcessEnergyCostWithStars(CombatState, Player) -> bool
+ShouldPlay(CombatState, CardModel, out AbstractModel?, AutoPlayType) -> bool
+ShouldPlayerResetEnergy(CombatState, Player) -> bool
+ShouldPowerBeRemovedOnDeath(PowerModel) -> bool
+ShouldProceedToNextMapPoint(IRunState) -> bool
+ShouldProcurePotion(IRunState, CombatState?, PotionModel, Player) -> bool
+ShouldRefillMerchantEntry(IRunState, MerchantEntry, Player) -> bool
+ShouldStopCombatFromEnding(CombatState) -> bool
+ShouldTakeExtraTurn(CombatState, Player) -> bool
+TryModifyCardRewardOptions(IRunState, Player, List<CardCreationResult>, CardCreationOptions, out List<AbstractModel>) -> bool
+```

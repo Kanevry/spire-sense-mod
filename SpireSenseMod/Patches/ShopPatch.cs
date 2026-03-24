@@ -32,7 +32,11 @@ public static class ShopPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Rooms.MerchantRoom");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] ShopPatch.OnShopExited: Could not resolve target type MegaCrit.Sts2.Core.Rooms.MerchantRoom");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(m => m.Name == "Exit" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -55,7 +59,7 @@ public static class ShopPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] ShopPatch OnShopExited error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] ShopPatch OnShopExited error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

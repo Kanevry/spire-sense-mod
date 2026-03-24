@@ -4,6 +4,8 @@ using System.Reflection;
 using Godot;
 using HarmonyLib;
 
+// MOD-001: All Traverse operations go through GameStateApi helpers.
+
 namespace SpireSenseMod.Patches;
 
 /// <summary>
@@ -78,7 +80,7 @@ public static class CardRewardPatch
                 // Fallback: read _options field from the returned screen instance
                 if (cards == null && __result != null)
                 {
-                    var fieldVal = Traverse.Create(__result).Field("_options")?.GetValue<object>();
+                    var fieldVal = GameStateApi.GetField(__result, "_options");
                     if (fieldVal != null)
                     {
                         cards = fieldVal;
@@ -101,13 +103,12 @@ public static class CardRewardPatch
                         if (item == null) continue;
 
                         // CardCreationResult has a .Card property → CardModel
-                        var cardCreationTraverse = Traverse.Create(item);
-                        var cardModel = cardCreationTraverse.Property("Card")?.GetValue<object>();
+                        var cardModel = GameStateApi.GetProp(item, "Card");
 
                         if (cardModel == null)
                         {
                             // Fallback: try field originalCard (public readonly)
-                            cardModel = cardCreationTraverse.Field("originalCard")?.GetValue<object>();
+                            cardModel = GameStateApi.GetField(item, "originalCard");
                         }
 
                         if (cardModel == null)
@@ -204,16 +205,15 @@ public static class CardRewardPatch
 
                 // NCardHolder.CardModel is a virtual property (not a field)
                 // It accesses CardNode?.Model under the hood
-                var holderTraverse = Traverse.Create(cardHolder);
-                var cardModel = holderTraverse.Property("CardModel")?.GetValue<object>();
+                var cardModel = GameStateApi.GetProp(cardHolder, "CardModel");
 
                 if (cardModel == null)
                 {
                     // Fallback: try CardNode.Model path
-                    var cardNode = holderTraverse.Property("CardNode")?.GetValue<object>();
+                    var cardNode = GameStateApi.GetProp(cardHolder, "CardNode");
                     if (cardNode != null)
                     {
-                        cardModel = Traverse.Create(cardNode).Property("Model")?.GetValue<object>();
+                        cardModel = GameStateApi.GetProp(cardNode, "Model");
                     }
                 }
 

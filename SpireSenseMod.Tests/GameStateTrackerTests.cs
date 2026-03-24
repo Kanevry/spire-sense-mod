@@ -7,12 +7,6 @@ namespace SpireSenseMod.Tests;
 
 public class GameStateTrackerTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false,
-    };
-
     [Fact]
     public void GetCurrentState_InitialState_ReturnsDefaultGameState()
     {
@@ -373,7 +367,7 @@ public class GameStateTrackerTests
             SerializedData = "{\"big\":\"payload\"}",
         };
 
-        var json = JsonSerializer.Serialize(gameEvent, JsonOptions);
+        var json = JsonSerializer.Serialize(gameEvent, TestHelpers.JsonOptions);
 
         // SerializedData has [JsonIgnore], so it should not appear
         Assert.DoesNotContain("serializedData", json);
@@ -636,7 +630,7 @@ public class GameStateTrackerTests
             Timestamp = 1711000000000,
         };
 
-        var json = JsonSerializer.Serialize(entry, JsonOptions);
+        var json = JsonSerializer.Serialize(entry, TestHelpers.JsonOptions);
 
         Assert.Contains("\"type\":\"combat_start\"", json);
         Assert.Contains("\"timestamp\":1711000000000", json);

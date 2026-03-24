@@ -10,7 +10,7 @@
 - **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
 - **Status:** Production — Harmony patch targets verified via sts2.dll decompilation (5 patch files + 11 Hook subscriptions, observation-only)
-- **Test count:** 155 tests across xUnit test project
+- **Test count:** 176 tests across xUnit test project
 - **Debug Mode:** `Plugin.DebugMode = true` enables TypeDiscovery (runtime assembly scanning)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
 
@@ -19,13 +19,13 @@
 ```bash
 dotnet build                    # Build DLL (auto-deploys to mods folder if STS2GamePath set)
 dotnet build -c Release         # Release build
-dotnet test SpireSenseMod.Tests # xUnit tests (155 tests, no Godot dependency)
+dotnet test SpireSenseMod.Tests # xUnit tests (176 tests, no Godot dependency)
 ```
 
 ## CI Pipeline
 
 GitHub Actions (`.github/workflows/build.yml`):
-- **test job** (ubuntu, no Godot): xUnit tests via source-file linking — all 155 tests must pass
+- **test job** (ubuntu, no Godot): xUnit tests via source-file linking — all 176 tests must pass
 - **build job** (ubuntu): `dotnet restore` + `dotnet format` + `dotnet build -c Release /p:TreatWarningsAsErrors=true`
 - **release job** (on `v*` tags): Creates `SpireSense-v{version}.zip` with SHA256 checksums
 
@@ -72,6 +72,7 @@ SpireSenseMod/
 - **Event Buffer:** Separate `_eventLock` protects the ring buffer (max 100 events). Events are appended under lock, reads return snapshot lists.
 - **WebSocket Broadcast:** Events are queued in a `ConcurrentQueue<GameEvent>` and flushed by a 50ms `Timer` (or immediately when the queue reaches 10 messages). An `Interlocked` guard prevents concurrent flushes.
 - **Patch Thread:** Harmony postfix patches run on the game's main thread. They call `GameStateTracker.UpdateState()` which acquires the lock, mutates, serializes, and emits events.
+- **HttpListener Disposal:** Both `HttpServer` and `WebSocketServer` properly dispose `HttpListener` via `Close()` in their `Stop()` methods — no leaked listeners on mod unload.
 - **Rule:** Never hold `_lock` and `_eventLock` simultaneously. Never modify `GameStateTracker._currentState` outside the lock.
 
 ## Patch Priorities
@@ -211,6 +212,8 @@ Reference for STS2 internal types (verified via `ilspycmd` against sts2.dll):
 ### Hook Subscription Count
 - HookSubscriptions.cs: 11 hooks (was 9 in Session 19, added AfterCardChangedPiles + BeforeCardRemoved)
 - Harmony patches: 5 files with 9 direct patches (was 5 files with 13 patches — removed 4)
+- Remaining patches need Harmony — no equivalent hooks available
+- **Non-trivial hook candidates:** `BeforeRewardsOffered`, `AfterRewardTaken`, `AfterRestSiteHeal`, `AfterRestSiteSmith` hooks exist in STS2 but migration is non-trivial due to data signature mismatches with current patch implementations
 
 ## Key Decisions
 
@@ -223,3 +226,8 @@ Reference for STS2 internal types (verified via `ilspycmd` against sts2.dll):
 - **HigherThanNormal priority** -- ensures SpireSense reads stable game state before other mods transform it
 - **50ms batch interval** -- balances latency vs. network overhead during rapid combat events
 - **Immutable snapshots** -- serialized under lock, broadcast without holding locks
+
+## Standards & Patterns
+
+- **MOD-001 (Traverse via helpers):** All Traverse operations via `GameStateApi.GetProp()`/`GetField()`/`GetCollection()` — no raw `Traverse.Create()` in Patches/Hooks. Traverse stays only in GameStateApi.cs implementation.
+- **MOD-002 (TargetMethod logging):** When `AccessTools.TypeByName()` returns null in `[HarmonyTargetMethod]`, ALWAYS log with `GD.PrintErr("[SpireSense] PatchName: Could not resolve target type TypeName")`. Never silently return null.

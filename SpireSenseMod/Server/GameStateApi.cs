@@ -114,6 +114,7 @@ public static class GameStateApi
     public static void DumpObjectOnce(object obj, string label)
     {
         var typeName = obj.GetType().FullName ?? obj.GetType().Name;
+        if (_dumpedTypes.Count > 500) _dumpedTypes.Clear();
         if (!_dumpedTypes.TryAdd(typeName, 0)) return; // Already dumped this type
 
         GD.Print($"[SpireSense DEBUG] === {label}: {typeName} ===");

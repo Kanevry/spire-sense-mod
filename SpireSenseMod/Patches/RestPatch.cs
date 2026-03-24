@@ -4,6 +4,8 @@ using System.Reflection;
 using Godot;
 using HarmonyLib;
 
+// MOD-001: All Traverse operations go through GameStateApi helpers.
+
 namespace SpireSenseMod.Patches;
 
 /// <summary>
@@ -33,7 +35,11 @@ public static class RestPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Nodes.RestSite.NRestSiteButton");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] RestPatch.OnRestChoice: Could not resolve target type MegaCrit.Sts2.Core.Nodes.RestSite.NRestSiteButton");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(m => m.Name == "SelectOption" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -47,7 +53,6 @@ public static class RestPatch
             {
                 // First arg is the RestSiteOption that was selected
                 var option = __args?.Length > 0 ? __args[0] : __instance;
-                var optTraverse = Traverse.Create(option);
                 var choiceId = (GameStateApi.GetProp(option, "OptionId")
                     ?? GameStateApi.GetField(option, "_optionId"))?.ToString()
                     ?? option.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant();
@@ -71,7 +76,7 @@ public static class RestPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] RestPatch OnRestChoice error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] RestPatch OnRestChoice error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

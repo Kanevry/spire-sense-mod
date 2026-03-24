@@ -7,12 +7,6 @@ namespace SpireSenseMod.Tests;
 
 public class HookEventAdapterTests
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false,
-    };
-
     private GameStateTracker CreateTracker() => new();
 
     private HookEventAdapter CreateAdapter(GameStateTracker tracker) => new(tracker);
@@ -266,7 +260,7 @@ public class HookEventAdapterTests
         var events = tracker.GetEventsSince(0);
         Assert.Single(events);
         // Serialize and inspect the data to verify target is present
-        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        var json = JsonSerializer.Serialize(events[0].Data, TestHelpers.JsonOptions);
         Assert.Contains("\"target\":\"Cultist\"", json);
     }
 
@@ -394,7 +388,7 @@ public class HookEventAdapterTests
         Assert.Single(events);
         Assert.Equal("combat_end", events[0].Type);
 
-        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        var json = JsonSerializer.Serialize(events[0].Data, TestHelpers.JsonOptions);
         Assert.Contains("\"won\":true", json);
         Assert.Contains("\"isBoss\":true", json);
         Assert.Contains("\"floor\":17", json);
@@ -461,7 +455,7 @@ public class HookEventAdapterTests
         adapter.HandleCardAddedToDeck(card);
 
         var events = tracker.GetEventsSince(0);
-        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        var json = JsonSerializer.Serialize(events[0].Data, TestHelpers.JsonOptions);
         Assert.Contains("\"action\":\"added\"", json);
         Assert.Contains("\"id\":\"bash\"", json);
     }
@@ -584,7 +578,7 @@ public class HookEventAdapterTests
         adapter.HandleCardRemovedFromDeck(CreateCard("bash", "Bash"));
 
         var events = tracker.GetEventsSince(0);
-        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        var json = JsonSerializer.Serialize(events[0].Data, TestHelpers.JsonOptions);
         Assert.Contains("\"id\":\"bash\"", json);
         Assert.Contains("\"name\":\"Bash\"", json);
     }
@@ -625,7 +619,7 @@ public class HookEventAdapterTests
         adapter.HandleShopEntered();
 
         var events = tracker.GetEventsSince(0);
-        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        var json = JsonSerializer.Serialize(events[0].Data, TestHelpers.JsonOptions);
         Assert.Contains("\"screen\":\"shop\"", json);
     }
 
@@ -723,7 +717,7 @@ public class HookEventAdapterTests
         adapter.HandleRestEntered(options);
 
         var events = tracker.GetEventsSince(0);
-        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        var json = JsonSerializer.Serialize(events[0].Data, TestHelpers.JsonOptions);
         Assert.Contains("\"id\":\"dig\"", json);
         Assert.Contains("\"name\":\"Dig\"", json);
         Assert.Contains("\"enabled\":false", json);

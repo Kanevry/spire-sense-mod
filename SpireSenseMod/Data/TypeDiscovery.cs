@@ -116,7 +116,11 @@ public static class TypeDiscovery
                 .Take(50)
                 .ToList();
         }
-        catch { return new List<string>(); }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] TypeDiscovery: Failed to discover types: {ex.Message}");
+            return new List<string>();
+        }
     }
 
     private static List<string> GetPropertyNames(Type type)
@@ -128,7 +132,11 @@ public static class TypeDiscovery
                 .Take(50)
                 .ToList();
         }
-        catch { return new List<string>(); }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] TypeDiscovery: Failed to discover types: {ex.Message}");
+            return new List<string>();
+        }
     }
 
     private static List<string> GetMethodNames(Type type)
@@ -141,7 +149,11 @@ public static class TypeDiscovery
                 .Take(30)
                 .ToList();
         }
-        catch { return new List<string>(); }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] TypeDiscovery: Failed to discover types: {ex.Message}");
+            return new List<string>();
+        }
     }
 
     private class DiscoveredType

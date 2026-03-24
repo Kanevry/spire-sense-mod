@@ -4,6 +4,8 @@ using System.Reflection;
 using Godot;
 using HarmonyLib;
 
+// MOD-001: All Traverse operations go through GameStateApi helpers.
+
 namespace SpireSenseMod.Patches;
 
 /// <summary>
@@ -29,7 +31,11 @@ public static class EventPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Models.EventModel");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] EventPatch.OnEventStarted: Could not resolve target type MegaCrit.Sts2.Core.Models.EventModel");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(m => m.Name == "BeginEvent" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -41,14 +47,12 @@ public static class EventPatch
         {
             try
             {
-                var traverse = Traverse.Create(__instance);
-
                 // EventModel has name/description via properties or type name
-                var eventName = (traverse.Property("Name")?.GetValue<object>()
-                    ?? traverse.Property("EventId")?.GetValue<object>())?.ToString()
+                var eventName = (GameStateApi.GetProp(__instance, "Name")
+                    ?? GameStateApi.GetProp(__instance, "EventId"))?.ToString()
                     ?? __instance.GetType().Name;
-                var description = (traverse.Property("Description")?.GetValue<object>()
-                    ?? traverse.Field("_description")?.GetValue<object>())?.ToString() ?? "";
+                var description = (GameStateApi.GetProp(__instance, "Description")
+                    ?? GameStateApi.GetField(__instance, "_description"))?.ToString() ?? "";
 
                 // Extract event options from CurrentOptions
                 var eventOptions = new List<EventOption>();
@@ -59,17 +63,16 @@ public static class EventPatch
                     var index = 0;
                     foreach (var option in enumerable)
                     {
-                        var optTraverse = Traverse.Create(option);
                         eventOptions.Add(new EventOption
                         {
-                            Id = (optTraverse.Property("OptionId")?.GetValue<object>()
-                                ?? optTraverse.Field("_optionId")?.GetValue<object>())?.ToString()
+                            Id = (GameStateApi.GetProp(option, "OptionId")
+                                ?? GameStateApi.GetField(option, "_optionId"))?.ToString()
                                 ?? $"option_{index}",
-                            Text = (optTraverse.Property("Title")?.GetValue<object>()
-                                ?? optTraverse.Property("Text")?.GetValue<object>()
-                                ?? optTraverse.Field("_title")?.GetValue<object>())?.ToString() ?? "",
-                            Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
-                                ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
+                            Text = (GameStateApi.GetProp(option, "Title")
+                                ?? GameStateApi.GetProp(option, "Text")
+                                ?? GameStateApi.GetField(option, "_title"))?.ToString() ?? "",
+                            Enabled = (bool?)GameStateApi.GetProp(option, "IsEnabled")
+                                ?? (bool?)GameStateApi.GetField(option, "_isEnabled")
                                 ?? true,
                         });
                         index++;
@@ -92,7 +95,7 @@ public static class EventPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] EventPatch OnEventStarted error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] EventPatch OnEventStarted error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -111,7 +114,11 @@ public static class EventPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Nodes.Events.NEventOptionButton");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] EventPatch.OnEventChoiceMade: Could not resolve target type MegaCrit.Sts2.Core.Nodes.Events.NEventOptionButton");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(m => m.Name == "OnRelease" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -123,11 +130,9 @@ public static class EventPatch
         {
             try
             {
-                var traverse = Traverse.Create(__instance);
-
                 // NEventOptionButton has Event and Option properties
-                var eventObj = traverse.Property("Event")?.GetValue<object>();
-                var optionObj = traverse.Property("Option")?.GetValue<object>();
+                var eventObj = GameStateApi.GetProp(__instance, "Event");
+                var optionObj = GameStateApi.GetProp(__instance, "Option");
 
                 string? choiceId = null;
                 string? choiceText = null;
@@ -160,7 +165,7 @@ public static class EventPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] EventPatch OnEventChoiceMade error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] EventPatch OnEventChoiceMade error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

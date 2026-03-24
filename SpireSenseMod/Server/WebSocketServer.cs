@@ -96,6 +96,7 @@ public class WebSocketServer : IDisposable
         _clients.Clear();
         _pendingSends.Clear();
         _listener.Stop();
+        _listener.Close();
         _cts.Dispose();
     }
 
@@ -195,7 +196,7 @@ public class WebSocketServer : IDisposable
             }
             catch (Exception ex)
             {
-                GD.PrintErr($"[SpireSense WS] Accept error: {ex.Message}");
+                GD.PrintErr($"[SpireSense WS] Accept error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -272,8 +273,9 @@ public class WebSocketServer : IDisposable
                         disconnected.Add(clientId);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    GD.PrintErr($"[SpireSense WS] Ping failed for client {clientId}: {ex.Message}\n{ex.StackTrace}");
                     disconnected.Add(clientId);
                 }
             }
@@ -317,7 +319,7 @@ public class WebSocketServer : IDisposable
             }
             catch (Exception ex)
             {
-                GD.PrintErr($"[SpireSense WS] Broadcast error for {clientId}: {ex.Message}");
+                GD.PrintErr($"[SpireSense WS] Broadcast error for {clientId}: {ex.Message}\n{ex.StackTrace}");
                 disconnected.Add(clientId);
             }
         }

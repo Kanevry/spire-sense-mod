@@ -68,10 +68,9 @@ public static class HookSubscriptions
                     {
                         foreach (var ally in allies)
                         {
-                            var at = Traverse.Create(ally);
-                            state.Combat.Player.Hp = at.Property("CurrentHp")?.GetValue<int>() ?? 0;
-                            state.Combat.Player.MaxHp = at.Property("MaxHp")?.GetValue<int>() ?? 0;
-                            state.Combat.Player.Block = at.Property("Block")?.GetValue<int>() ?? 0;
+                            state.Combat.Player.Hp = (int?)GameStateApi.GetProp(ally, "CurrentHp") ?? 0;
+                            state.Combat.Player.MaxHp = (int?)GameStateApi.GetProp(ally, "MaxHp") ?? 0;
+                            state.Combat.Player.Block = (int?)GameStateApi.GetProp(ally, "Block") ?? 0;
                             break;
                         }
                     }
@@ -91,9 +90,8 @@ public static class HookSubscriptions
                     // Get Gold/Energy from Player object (third Hook param)
                     if (playerObj != null)
                     {
-                        var pt = Traverse.Create(playerObj);
-                        state.Combat.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? state.Combat.Player.Gold;
-                        state.Combat.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
+                        state.Combat.Player.Gold = (int?)GameStateApi.GetProp(playerObj, "Gold") ?? state.Combat.Player.Gold;
+                        state.Combat.Player.MaxEnergy = (int?)GameStateApi.GetProp(playerObj, "MaxEnergy") ?? 3;
                         state.Combat.Player.Energy = state.Combat.Player.MaxEnergy; // Reset each turn
                     }
                     else
@@ -106,8 +104,7 @@ public static class HookSubscriptions
                         {
                             foreach (var player in rsPlayers)
                             {
-                                var pt = Traverse.Create(player);
-                                state.Combat.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                                state.Combat.Player.Gold = (int?)GameStateApi.GetProp(player, "Gold") ?? 0;
                                 state.Combat.Player.Energy = state.Combat.Player.MaxEnergy;
                                 break;
                             }
@@ -118,7 +115,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterPlayerTurnStart error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterPlayerTurnStart error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -180,10 +177,9 @@ public static class HookSubscriptions
                     {
                         foreach (var ally in allies)
                         {
-                            var at = Traverse.Create(ally);
-                            combatState.Player.Hp = at.Property("CurrentHp")?.GetValue<int>() ?? 0;
-                            combatState.Player.MaxHp = at.Property("MaxHp")?.GetValue<int>() ?? 0;
-                            combatState.Player.Block = at.Property("Block")?.GetValue<int>() ?? 0;
+                            combatState.Player.Hp = (int?)GameStateApi.GetProp(ally, "CurrentHp") ?? 0;
+                            combatState.Player.MaxHp = (int?)GameStateApi.GetProp(ally, "MaxHp") ?? 0;
+                            combatState.Player.Block = (int?)GameStateApi.GetProp(ally, "Block") ?? 0;
                             break;
                         }
                     }
@@ -198,9 +194,8 @@ public static class HookSubscriptions
                     {
                         foreach (var player in rsPlayers)
                         {
-                            var pt = Traverse.Create(player);
-                            combatState.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
-                            combatState.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
+                            combatState.Player.Gold = (int?)GameStateApi.GetProp(player, "Gold") ?? 0;
+                            combatState.Player.MaxEnergy = (int?)GameStateApi.GetProp(player, "MaxEnergy") ?? 3;
                             combatState.Player.Energy = combatState.Player.MaxEnergy;
                             break;
                         }
@@ -224,7 +219,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] BeforeCombatStart error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] BeforeCombatStart error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -265,15 +260,14 @@ public static class HookSubscriptions
 
                 if (combatStateObj != null)
                 {
-                    var csTraverse = Traverse.Create(combatStateObj);
-                    won = csTraverse.Property("IsVictory")?.GetValue<bool>()
-                        ?? csTraverse.Field("_isVictory")?.GetValue<bool>()
+                    won = (bool?)GameStateApi.GetProp(combatStateObj, "IsVictory")
+                        ?? (bool?)GameStateApi.GetField(combatStateObj, "_isVictory")
                         ?? false;
                 }
 
                 if (combatRoomObj != null)
                 {
-                    var roomType = Traverse.Create(combatRoomObj).Property("RoomType")?.GetValue<object>()?.ToString();
+                    var roomType = GameStateApi.GetProp(combatRoomObj, "RoomType")?.ToString();
                     isBoss = roomType == "Boss";
                 }
 
@@ -300,7 +294,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterCombatEnd error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterCombatEnd error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -343,7 +337,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterMapGenerated error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterMapGenerated error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -410,7 +404,7 @@ public static class HookSubscriptions
                     var targetObj = GameStateApi.GetProp(cardPlayObj, "Target");
                     if (targetObj != null)
                     {
-                        targetName = Traverse.Create(targetObj).Property("Name")?.GetValue<string>() ?? "";
+                        targetName = GameStateApi.GetProp(targetObj, "Name")?.ToString() ?? "";
                     }
                 }
 
@@ -425,7 +419,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterCardPlayed error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterCardPlayed error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -467,7 +461,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterAttack error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterAttack error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -504,11 +498,9 @@ public static class HookSubscriptions
                 var potionInfo = new PotionInfo();
                 if (potionObj != null)
                 {
-                    var pt = Traverse.Create(potionObj);
                     potionInfo = new PotionInfo
                     {
-                        Id = (pt.Property("PotionId")?.GetValue<object>()
-                            ?? GameStateApi.GetProp(potionObj, "PotionId"))?.ToString() ?? "",
+                        Id = GameStateApi.GetProp(potionObj, "PotionId")?.ToString() ?? "",
                         Name = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Name")),
                         Description = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Description")),
                         CanUse = false,
@@ -518,7 +510,7 @@ public static class HookSubscriptions
                 var targetName = "";
                 if (targetObj != null)
                 {
-                    targetName = Traverse.Create(targetObj).Property("Name")?.GetValue<string>() ?? "";
+                    targetName = GameStateApi.GetProp(targetObj, "Name")?.ToString() ?? "";
                 }
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent
@@ -539,7 +531,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterPotionUsed error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterPotionUsed error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -575,11 +567,9 @@ public static class HookSubscriptions
                 var potionInfo = new PotionInfo();
                 if (potionObj != null)
                 {
-                    var pt = Traverse.Create(potionObj);
                     potionInfo = new PotionInfo
                     {
-                        Id = (pt.Property("PotionId")?.GetValue<object>()
-                            ?? GameStateApi.GetProp(potionObj, "PotionId"))?.ToString() ?? "",
+                        Id = GameStateApi.GetProp(potionObj, "PotionId")?.ToString() ?? "",
                         Name = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Name")),
                         Description = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Description")),
                         CanUse = true,
@@ -604,7 +594,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterPotionProcured error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterPotionProcured error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -642,8 +632,7 @@ public static class HookSubscriptions
                 var nodeType = "monster";
                 if (roomObj != null)
                 {
-                    var roomType = GameStateApi.GetProp(roomObj, "RoomType")
-                        ?? Traverse.Create(roomObj).Property("RoomType")?.GetValue<object>();
+                    var roomType = GameStateApi.GetProp(roomObj, "RoomType");
                     nodeType = roomType?.ToString()?.ToLowerInvariant() ?? "monster";
                 }
 
@@ -652,12 +641,11 @@ public static class HookSubscriptions
 
                 if (runStateObj != null)
                 {
-                    var rsTraverse = Traverse.Create(runStateObj);
-                    floor = rsTraverse.Property("ActFloor")?.GetValue<int>()
-                        ?? rsTraverse.Property("TotalFloor")?.GetValue<int>()
+                    floor = (int?)GameStateApi.GetProp(runStateObj, "ActFloor")
+                        ?? (int?)GameStateApi.GetProp(runStateObj, "TotalFloor")
                         ?? 0;
 
-                    var mapData = rsTraverse.Property("Map")?.GetValue<object>()
+                    var mapData = GameStateApi.GetProp(runStateObj, "Map")
                         ?? GameStateApi.GetField(runStateObj, "_map");
                     if (mapData != null)
                     {
@@ -685,9 +673,8 @@ public static class HookSubscriptions
                 {
                     try
                     {
-                        var roomTraverse = Traverse.Create(roomObj);
-                        var inventory = roomTraverse.Field("_inventory")?.GetValue<object>()
-                            ?? roomTraverse.Property("Inventory")?.GetValue<object>();
+                        var inventory = GameStateApi.GetField(roomObj, "_inventory")
+                            ?? GameStateApi.GetProp(roomObj, "Inventory");
 
                         var shopCards = new List<CardInfo>();
                         var shopRelics = new List<RelicInfo>();
@@ -700,9 +687,8 @@ public static class HookSubscriptions
                             {
                                 foreach (var entry in cardEntries)
                                 {
-                                    var entryTraverse = Traverse.Create(entry);
-                                    var cardModel = entryTraverse.Property("CardModel")?.GetValue<object>()
-                                        ?? entryTraverse.Field("_cardModel")?.GetValue<object>();
+                                    var cardModel = GameStateApi.GetProp(entry, "CardModel")
+                                        ?? GameStateApi.GetField(entry, "_cardModel");
                                     if (cardModel != null)
                                         shopCards.Add(GameStateApi.ExtractCardInfo(cardModel));
                                 }
@@ -714,9 +700,8 @@ public static class HookSubscriptions
                             {
                                 foreach (var entry in relicEntries)
                                 {
-                                    var entryTraverse = Traverse.Create(entry);
-                                    var relicModel = entryTraverse.Property("RelicModel")?.GetValue<object>()
-                                        ?? entryTraverse.Field("_relicModel")?.GetValue<object>();
+                                    var relicModel = GameStateApi.GetProp(entry, "RelicModel")
+                                        ?? GameStateApi.GetField(entry, "_relicModel");
                                     if (relicModel != null)
                                         shopRelics.Add(GameStateApi.ExtractRelicInfo(relicModel));
                                 }
@@ -738,9 +723,9 @@ public static class HookSubscriptions
 
                         GD.Print($"[SpireSense] Shop detected via Hook: {shopCards.Count} cards, {shopRelics.Count} relics");
                     }
-                    catch (System.Exception shopEx)
+                    catch (System.Exception ex)
                     {
-                        GD.PrintErr($"[SpireSense] AfterRoomEntered shop extraction error: {shopEx.Message}");
+                        GD.PrintErr($"[SpireSense] AfterRoomEntered shop extraction error: {ex.Message}\n{ex.StackTrace}");
                     }
                 }
 
@@ -756,19 +741,18 @@ public static class HookSubscriptions
                         {
                             foreach (var option in options)
                             {
-                                var optTraverse = Traverse.Create(option);
                                 restOptions.Add(new RestOption
                                 {
-                                    Id = (optTraverse.Property("OptionId")?.GetValue<object>()
-                                        ?? optTraverse.Field("_optionId")?.GetValue<object>())?.ToString()
+                                    Id = (GameStateApi.GetProp(option, "OptionId")
+                                        ?? GameStateApi.GetField(option, "_optionId"))?.ToString()
                                         ?? option.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant(),
-                                    Name = (optTraverse.Property("Title")?.GetValue<object>()
-                                        ?? optTraverse.Field("_title")?.GetValue<object>())?.ToString()
+                                    Name = (GameStateApi.GetProp(option, "Title")
+                                        ?? GameStateApi.GetField(option, "_title"))?.ToString()
                                         ?? option.GetType().Name.Replace("RestSiteOption", ""),
-                                    Description = (optTraverse.Property("Description")?.GetValue<object>()
-                                        ?? optTraverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
-                                    Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
-                                        ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
+                                    Description = (GameStateApi.GetProp(option, "Description")
+                                        ?? GameStateApi.GetField(option, "_description"))?.ToString() ?? "",
+                                    Enabled = (bool?)GameStateApi.GetProp(option, "IsEnabled")
+                                        ?? (bool?)GameStateApi.GetField(option, "_isEnabled")
                                         ?? true,
                                 });
                             }
@@ -788,15 +772,15 @@ public static class HookSubscriptions
 
                         GD.Print($"[SpireSense] Rest site detected via Hook: {restOptions.Count} options");
                     }
-                    catch (System.Exception restEx)
+                    catch (System.Exception ex)
                     {
-                        GD.PrintErr($"[SpireSense] AfterRoomEntered rest extraction error: {restEx.Message}");
+                        GD.PrintErr($"[SpireSense] AfterRoomEntered rest extraction error: {ex.Message}\n{ex.StackTrace}");
                     }
                 }
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterRoomEntered error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterRoomEntered error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -875,7 +859,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] AfterCardChangedPiles error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] AfterCardChangedPiles error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -930,7 +914,7 @@ public static class HookSubscriptions
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] BeforeCardRemoved error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] BeforeCardRemoved error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

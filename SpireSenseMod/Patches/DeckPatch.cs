@@ -4,6 +4,8 @@ using System.Reflection;
 using Godot;
 using HarmonyLib;
 
+// MOD-001: All Traverse operations go through GameStateApi helpers.
+
 namespace SpireSenseMod.Patches;
 
 /// <summary>
@@ -32,7 +34,11 @@ public static class DeckPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Commands.RelicCmd");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] DeckPatch.OnRelicObtained: Could not resolve target type MegaCrit.Sts2.Core.Commands.RelicCmd");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
                 .Where(m => m.Name == "Obtain" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -64,7 +70,7 @@ public static class DeckPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] RelicObtained error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] RelicObtained error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -81,7 +87,11 @@ public static class DeckPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Runs.RunManager");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] DeckPatch.OnRunStart: Could not resolve target type MegaCrit.Sts2.Core.Runs.RunManager");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(m => m.Name == "Launch" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -95,7 +105,6 @@ public static class DeckPatch
             {
                 // __result is RunState from Launch()
                 // __instance is RunManager.Instance
-                var traverse = Traverse.Create(__instance);
 
                 // RunState has Players list — extract character from first player
                 var character = "unknown";
@@ -116,7 +125,7 @@ public static class DeckPatch
 
                     // Get ascension from RunState
                     ascension = (int?)GameStateApi.GetProp(__result, "AscensionLevel")
-                        ?? Traverse.Create(__result).Field("_ascensionLevel")?.GetValue<int>()
+                        ?? (int?)GameStateApi.GetField(__result, "_ascensionLevel")
                         ?? 0;
 
                     // Get players from RunState — use GetCollection for IReadOnlyList
@@ -211,7 +220,7 @@ public static class DeckPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] RunStart error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] RunStart error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
@@ -228,7 +237,11 @@ public static class DeckPatch
         static MethodBase? TargetMethod()
         {
             var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Runs.RunManager");
-            if (type == null) return null;
+            if (type == null)
+            {
+                GD.PrintErr("[SpireSense] DeckPatch.OnRunEnd: Could not resolve target type MegaCrit.Sts2.Core.Runs.RunManager");
+                return null;
+            }
             return type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic)
                 .Where(m => m.Name == "OnEnded" && !m.IsGenericMethod)
                 .OrderByDescending(m => m.GetParameters().Length)
@@ -243,9 +256,8 @@ public static class DeckPatch
                 var floor = Plugin.StateTracker?.GetCurrentState().Floor ?? 0;
 
                 // Try to get score from RunManager
-                var traverse = Traverse.Create(__instance);
-                var score = traverse.Property("Score")?.GetValue<int>()
-                    ?? traverse.Field("_score")?.GetValue<int>()
+                var score = (int?)GameStateApi.GetProp(__instance, "Score")
+                    ?? (int?)GameStateApi.GetField(__instance, "_score")
                     ?? 0;
 
                 Plugin.StateTracker?.SetScreen(isVictory ? ScreenType.Victory : ScreenType.GameOver);
@@ -260,7 +272,7 @@ public static class DeckPatch
             }
             catch (System.Exception ex)
             {
-                GD.PrintErr($"[SpireSense] RunEnd error: {ex.Message}");
+                GD.PrintErr($"[SpireSense] RunEnd error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }
