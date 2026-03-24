@@ -27,6 +27,7 @@
     <Compile Include="../SpireSenseMod/Models/ScreenType.cs" Link="Source/Models/ScreenType.cs" />
     <Compile Include="../SpireSenseMod/Models/CharacterValidator.cs" Link="Source/Models/CharacterValidator.cs" />
     <Compile Include="../SpireSenseMod/GameStateTracker.cs" Link="Source/GameStateTracker.cs" />
+    <Compile Include="../SpireSenseMod/Hooks/HookEventAdapter.cs" Link="Source/Hooks/HookEventAdapter.cs" />
   </ItemGroup>
 
 </Project>
