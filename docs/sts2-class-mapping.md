@@ -355,35 +355,68 @@ Note: **Deprived** is a 6th character not in our current data.
 ## Hooks System
 
 The `Hook` class (`MegaCrit.Sts2.Core.Hooks.Hook`) is the BEST approach for most patches.
-It provides 60+ static async methods that fire at well-defined game events.
+It provides ~90 static async methods that fire at well-defined game events.
 All hooks receive strongly-typed parameters (RunState, CombatState, Player, etc.).
 
-### Key Hooks for SpireSense
+### Already Subscribed Hooks (11 in HookSubscriptions.cs)
 
 | Hook | Parameters | Use Case |
 |---|---|---|
-| `BeforeCombatStart` | RunState, CombatState? | Combat starting |
-| `AfterCombatEnd` | RunState, CombatState?, CombatRoom | Combat ended |
-| `AfterCombatVictory` | RunState, CombatState?, CombatRoom | Victory |
-| `AfterPlayerTurnStart` | CombatState, PlayerChoiceContext, Player | Turn started |
-| `BeforeCardPlayed` | CombatState, CardPlay | Card about to play |
-| `AfterCardPlayed` | CombatState, PlayerChoiceContext, CardPlay | Card played |
-| `AfterCardDrawn` | CombatState, PlayerChoiceContext, CardModel, bool | Card drawn |
+| `AfterPlayerTurnStart` | CombatState, PlayerChoiceContext, Player | Turn started — extract hand, piles, monsters |
+| `BeforeCombatStart` | IRunState, CombatState? | Combat starting — init combat state |
+| `AfterCombatEnd` | IRunState, CombatState?, CombatRoom | Combat ended — record result |
+| `AfterMapGenerated` | IRunState, ActMap, int actIndex | Map generated — extract map nodes |
+| `AfterCardPlayed` | CombatState, PlayerChoiceContext, CardPlay | Card played — emit event, refresh state |
+| `AfterAttack` | CombatState, AttackCommand | Attack resolved — refresh HP post-damage |
+| `AfterPotionUsed` | IRunState, CombatState?, PotionModel, Creature? | Potion used — emit event, update inventory |
+| `AfterPotionProcured` | IRunState, CombatState?, PotionModel | Potion obtained — update inventory |
+| `AfterRoomEntered` | IRunState, AbstractRoom | Room entered — update floor, screen, detect Shop/Rest rooms |
+| `AfterCardChangedPiles` | IRunState, CombatState?, CardModel, PileType, AbstractModel? | Card moved piles — deck add (NEW Session 20) |
+| `BeforeCardRemoved` | IRunState, CardModel | Card about to be removed from deck (NEW Session 20) |
+
+### Available but Not Used (notable)
+
+| Hook | Parameters | Use Case |
+|---|---|---|
+| `AfterCombatVictory` | IRunState, CombatState?, CombatRoom | Victory only (we use AfterCombatEnd instead) |
+| `AfterCurrentHpChanged` | IRunState, CombatState?, Creature, decimal | HP change tracking |
+| `AfterDamageGiven` | IRunState, CombatState?, Creature, Creature, decimal | Outgoing damage tracking |
+| `AfterDamageReceived` | IRunState, CombatState?, Creature, decimal | Incoming damage tracking |
+| `AfterCardDrawn` | CombatState, PlayerChoiceContext, CardModel, bool | Card drawn to hand |
 | `AfterCardDiscarded` | CombatState, PlayerChoiceContext, CardModel | Card discarded |
 | `AfterCardExhausted` | CombatState, PlayerChoiceContext, CardModel, bool | Card exhausted |
-| `AfterCardChangedPiles` | RunState, CombatState?, CardModel, PileType, AbstractModel? | Card moved piles |
-| `BeforeCardRemoved` | RunState, CardModel | Card removed from deck |
-| `BeforeRoomEntered` | RunState, AbstractRoom | Entering any room |
-| `AfterRoomEntered` | RunState, AbstractRoom | Room entered |
-| `AfterItemPurchased` | RunState, Player, MerchantEntry, int | Shop purchase |
-| `AfterPotionUsed` | RunState, CombatState?, PotionModel, Creature? | Potion used |
-| `AfterPotionProcured` | RunState, CombatState?, PotionModel | Potion obtained |
-| `AfterRestSiteHeal` | RunState, Player, bool | Healed at rest |
-| `AfterRestSiteSmith` | RunState, Player | Smithed at rest |
-| `AfterRewardTaken` | RunState, Player, Reward | Reward taken |
-| `BeforeRewardsOffered` | RunState, Player, IReadOnlyList<Reward> | Rewards shown |
-| `AfterMapGenerated` | RunState, ActMap, int | Map generated |
-| `AfterGoldGained` | RunState, Player | Gold changed |
+| `AfterItemPurchased` | IRunState, Player, MerchantEntry, int goldSpent | Shop purchases |
+| `AfterRestSiteHeal` | IRunState, Player, bool | Healed at rest site |
+| `AfterRestSiteSmith` | IRunState, Player | Smithed at rest site |
+| `BeforeRewardsOffered` | IRunState, Player, IReadOnlyList\<Reward\> | Before rewards shown |
+| `AfterRewardTaken` | IRunState, Player, Reward | After any reward taken |
+| `AfterOrbChanneled` | IRunState, CombatState?, OrbModel | Defect orb channeled |
+| `AfterOrbEvoked` | IRunState, CombatState?, OrbModel | Defect orb evoked |
+| `BeforeCardPlayed` | CombatState, CardPlay | Card about to be played |
+| `BeforeRoomEntered` | IRunState, AbstractRoom | Before entering any room |
+| `BeforeTurnEnd` | CombatState, CombatSide | Turn ending |
+| `AfterTurnEnd` | CombatState, CombatSide | Turn ended |
+| `AfterGoldGained` | IRunState, Player | Gold changed |
+| `AfterPotionDiscarded` | IRunState, CombatState?, PotionModel | Potion discarded |
+
+### No Hook Available (requires Harmony)
+
+These game events have no corresponding Hook method and require direct Harmony patches:
+
+| Target | Method | Patch File |
+|---|---|---|
+| `RelicCmd.Obtain` | Relic obtained | DeckPatch.cs |
+| `RunManager.Launch` | Run start | DeckPatch.cs |
+| `RunManager.OnEnded` | Run end | DeckPatch.cs |
+| `MerchantRoom.Exit` | Shop exit | ShopPatch.cs |
+| `EventModel.BeginEvent` | Event start | EventPatch.cs |
+| `NEventOptionButton.OnRelease` | Event choice | EventPatch.cs |
+| `NRestSiteButton.SelectOption` | Rest choice | RestPatch.cs |
+| `NCardRewardSelectionScreen.ShowScreen` | Card rewards shown | CardRewardPatch.cs |
+| `NCardRewardSelectionScreen.SelectCard` | Card picked | CardRewardPatch.cs |
+
+Note: Shop/Rest room *entry* detection is handled by `AfterRoomEntered` (checks `AbstractRoom.RoomType`).
+`MerchantRoom.Enter` and `RestSiteRoom.Enter` patches were removed in Session 20.
 
 ## Architecture Notes
 

@@ -92,4 +92,73 @@ public class HookEventAdapter
             Data = new { won, isBoss, floor },
         });
     }
+
+    /// <summary>
+    /// Called when a card is added to the player's deck (e.g., card reward pick, shop purchase, event).
+    /// Appends the card to the deck and emits a deck_changed event.
+    /// </summary>
+    public void HandleCardAddedToDeck(CardInfo card)
+    {
+        _tracker.UpdateState(state =>
+        {
+            state.Deck.Add(card);
+        });
+        _tracker.EmitEvent(new GameEvent
+        {
+            Type = "deck_changed",
+            Data = new { action = "added", card },
+        });
+    }
+
+    /// <summary>
+    /// Called when a card is removed from the player's deck (e.g., shop removal, event).
+    /// Removes the first matching card by ID and emits a card_removed event.
+    /// </summary>
+    public void HandleCardRemovedFromDeck(CardInfo card)
+    {
+        _tracker.UpdateState(state =>
+        {
+            var index = state.Deck.FindIndex(c => c.Id == card.Id);
+            if (index >= 0)
+                state.Deck.RemoveAt(index);
+        });
+        _tracker.EmitEvent(new GameEvent
+        {
+            Type = "card_removed",
+            Data = new { card },
+        });
+    }
+
+    /// <summary>
+    /// Called when the player enters a shop.
+    /// Sets screen to Shop and clears previous shop data. Shop items are populated
+    /// separately via state update once the shop inventory is extracted.
+    /// </summary>
+    public void HandleShopEntered()
+    {
+        _tracker.SetScreen(ScreenType.Shop);
+        _tracker.EmitEvent(new GameEvent
+        {
+            Type = "floor_changed",
+            Data = new { screen = ScreenType.Shop },
+        });
+    }
+
+    /// <summary>
+    /// Called when the player enters a rest site.
+    /// Sets screen to Rest, stores the available rest options, and emits a rest_entered event.
+    /// </summary>
+    public void HandleRestEntered(List<RestOption> options)
+    {
+        _tracker.UpdateState(state =>
+        {
+            state.Screen = ScreenType.Rest;
+            state.RestOptions = options;
+        });
+        _tracker.EmitEvent(new GameEvent
+        {
+            Type = "rest_entered",
+            Data = new { options },
+        });
+    }
 }

@@ -399,4 +399,350 @@ public class HookEventAdapterTests
         Assert.Contains("\"isBoss\":true", json);
         Assert.Contains("\"floor\":17", json);
     }
+
+    // ─── HandleCardAddedToDeck ─────────────────────────────────────
+
+    [Fact]
+    public void HandleCardAddedToDeck_AddsCardToDeck()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        var card = CreateCard("bash", "Bash");
+
+        adapter.HandleCardAddedToDeck(card);
+
+        var state = tracker.GetCurrentState();
+        Assert.Single(state.Deck);
+        Assert.Equal("bash", state.Deck[0].Id);
+        Assert.Equal("Bash", state.Deck[0].Name);
+    }
+
+    [Fact]
+    public void HandleCardAddedToDeck_AppendsToExistingDeck()
+    {
+        var tracker = CreateTracker();
+        tracker.UpdateState(state =>
+        {
+            state.Deck.Add(CreateCard("strike", "Strike"));
+            state.Deck.Add(CreateCard("defend", "Defend"));
+        });
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleCardAddedToDeck(CreateCard("bash", "Bash"));
+
+        var state = tracker.GetCurrentState();
+        Assert.Equal(3, state.Deck.Count);
+        Assert.Equal("strike", state.Deck[0].Id);
+        Assert.Equal("defend", state.Deck[1].Id);
+        Assert.Equal("bash", state.Deck[2].Id);
+    }
+
+    [Fact]
+    public void HandleCardAddedToDeck_EmitsDeckChangedEvent()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        var card = CreateCard("offering", "Offering");
+
+        adapter.HandleCardAddedToDeck(card);
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Single(events);
+        Assert.Equal("deck_changed", events[0].Type);
+    }
+
+    [Fact]
+    public void HandleCardAddedToDeck_EventData_ContainsActionAndCard()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        var card = CreateCard("bash", "Bash");
+
+        adapter.HandleCardAddedToDeck(card);
+
+        var events = tracker.GetEventsSince(0);
+        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        Assert.Contains("\"action\":\"added\"", json);
+        Assert.Contains("\"id\":\"bash\"", json);
+    }
+
+    [Fact]
+    public void HandleCardAddedToDeck_EmitsViaOnGameEvent()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        GameEvent? receivedEvent = null;
+        tracker.OnGameEvent += e =>
+        {
+            if (e.Type == "deck_changed") receivedEvent = e;
+        };
+
+        adapter.HandleCardAddedToDeck(CreateCard());
+
+        Assert.NotNull(receivedEvent);
+        Assert.Equal("deck_changed", receivedEvent!.Type);
+    }
+
+    // ─── HandleCardRemovedFromDeck ─────────────────────────────────
+
+    [Fact]
+    public void HandleCardRemovedFromDeck_RemovesMatchingCard()
+    {
+        var tracker = CreateTracker();
+        tracker.UpdateState(state =>
+        {
+            state.Deck.Add(CreateCard("strike", "Strike"));
+            state.Deck.Add(CreateCard("bash", "Bash"));
+            state.Deck.Add(CreateCard("defend", "Defend"));
+        });
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleCardRemovedFromDeck(CreateCard("bash", "Bash"));
+
+        var state = tracker.GetCurrentState();
+        Assert.Equal(2, state.Deck.Count);
+        Assert.Equal("strike", state.Deck[0].Id);
+        Assert.Equal("defend", state.Deck[1].Id);
+    }
+
+    [Fact]
+    public void HandleCardRemovedFromDeck_RemovesOnlyFirstMatch()
+    {
+        var tracker = CreateTracker();
+        tracker.UpdateState(state =>
+        {
+            state.Deck.Add(CreateCard("strike", "Strike"));
+            state.Deck.Add(CreateCard("strike", "Strike"));
+            state.Deck.Add(CreateCard("strike", "Strike"));
+        });
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleCardRemovedFromDeck(CreateCard("strike", "Strike"));
+
+        var state = tracker.GetCurrentState();
+        Assert.Equal(2, state.Deck.Count);
+        Assert.All(state.Deck, c => Assert.Equal("strike", c.Id));
+    }
+
+    [Fact]
+    public void HandleCardRemovedFromDeck_NoMatch_DeckUnchanged()
+    {
+        var tracker = CreateTracker();
+        tracker.UpdateState(state =>
+        {
+            state.Deck.Add(CreateCard("strike", "Strike"));
+            state.Deck.Add(CreateCard("defend", "Defend"));
+        });
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleCardRemovedFromDeck(CreateCard("bash", "Bash"));
+
+        var state = tracker.GetCurrentState();
+        Assert.Equal(2, state.Deck.Count);
+    }
+
+    [Fact]
+    public void HandleCardRemovedFromDeck_EmptyDeck_DoesNotCrash()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        // Should not throw on empty deck
+        adapter.HandleCardRemovedFromDeck(CreateCard("strike", "Strike"));
+
+        var state = tracker.GetCurrentState();
+        Assert.Empty(state.Deck);
+    }
+
+    [Fact]
+    public void HandleCardRemovedFromDeck_EmitsCardRemovedEvent()
+    {
+        var tracker = CreateTracker();
+        tracker.UpdateState(state =>
+        {
+            state.Deck.Add(CreateCard("bash", "Bash"));
+        });
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleCardRemovedFromDeck(CreateCard("bash", "Bash"));
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Single(events);
+        Assert.Equal("card_removed", events[0].Type);
+    }
+
+    [Fact]
+    public void HandleCardRemovedFromDeck_EventData_ContainsCardInfo()
+    {
+        var tracker = CreateTracker();
+        tracker.UpdateState(state =>
+        {
+            state.Deck.Add(CreateCard("bash", "Bash"));
+        });
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleCardRemovedFromDeck(CreateCard("bash", "Bash"));
+
+        var events = tracker.GetEventsSince(0);
+        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        Assert.Contains("\"id\":\"bash\"", json);
+        Assert.Contains("\"name\":\"Bash\"", json);
+    }
+
+    // ─── HandleShopEntered ─────────────────────────────────────────
+
+    [Fact]
+    public void HandleShopEntered_SetsScreenToShop()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleShopEntered();
+
+        var state = tracker.GetCurrentState();
+        Assert.Equal(ScreenType.Shop, state.Screen);
+    }
+
+    [Fact]
+    public void HandleShopEntered_EmitsFloorChangedEvent()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleShopEntered();
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Single(events);
+        Assert.Equal("floor_changed", events[0].Type);
+    }
+
+    [Fact]
+    public void HandleShopEntered_EventData_ContainsShopScreen()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleShopEntered();
+
+        var events = tracker.GetEventsSince(0);
+        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        Assert.Contains("\"screen\":\"shop\"", json);
+    }
+
+    [Fact]
+    public void HandleShopEntered_EmitsViaOnGameEvent()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        GameEvent? receivedEvent = null;
+        tracker.OnGameEvent += e =>
+        {
+            if (e.Type == "floor_changed") receivedEvent = e;
+        };
+
+        adapter.HandleShopEntered();
+
+        Assert.NotNull(receivedEvent);
+        Assert.Equal("floor_changed", receivedEvent!.Type);
+    }
+
+    // ─── HandleRestEntered ─────────────────────────────────────────
+
+    [Fact]
+    public void HandleRestEntered_SetsScreenToRest()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleRestEntered(new List<RestOption>());
+
+        var state = tracker.GetCurrentState();
+        Assert.Equal(ScreenType.Rest, state.Screen);
+    }
+
+    [Fact]
+    public void HandleRestEntered_StoresRestOptions()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        var options = new List<RestOption>
+        {
+            new() { Id = "rest", Name = "Rest", Description = "Heal 30% HP", Enabled = true },
+            new() { Id = "smith", Name = "Smith", Description = "Upgrade a card", Enabled = true },
+        };
+
+        adapter.HandleRestEntered(options);
+
+        var state = tracker.GetCurrentState();
+        Assert.NotNull(state.RestOptions);
+        Assert.Equal(2, state.RestOptions!.Count);
+        Assert.Equal("rest", state.RestOptions[0].Id);
+        Assert.Equal("Rest", state.RestOptions[0].Name);
+        Assert.Equal("smith", state.RestOptions[1].Id);
+    }
+
+    [Fact]
+    public void HandleRestEntered_EmptyOptions_StoresEmptyList()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleRestEntered(new List<RestOption>());
+
+        var state = tracker.GetCurrentState();
+        Assert.NotNull(state.RestOptions);
+        Assert.Empty(state.RestOptions!);
+    }
+
+    [Fact]
+    public void HandleRestEntered_EmitsRestEnteredEvent()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+
+        adapter.HandleRestEntered(new List<RestOption>
+        {
+            new() { Id = "rest", Name = "Rest" },
+        });
+
+        var events = tracker.GetEventsSince(0);
+        Assert.Single(events);
+        Assert.Equal("rest_entered", events[0].Type);
+    }
+
+    [Fact]
+    public void HandleRestEntered_EventData_ContainsOptions()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        var options = new List<RestOption>
+        {
+            new() { Id = "dig", Name = "Dig", Description = "Find a relic", Enabled = false },
+        };
+
+        adapter.HandleRestEntered(options);
+
+        var events = tracker.GetEventsSince(0);
+        var json = JsonSerializer.Serialize(events[0].Data, JsonOptions);
+        Assert.Contains("\"id\":\"dig\"", json);
+        Assert.Contains("\"name\":\"Dig\"", json);
+        Assert.Contains("\"enabled\":false", json);
+    }
+
+    [Fact]
+    public void HandleRestEntered_EmitsViaOnGameEvent()
+    {
+        var tracker = CreateTracker();
+        var adapter = CreateAdapter(tracker);
+        GameEvent? receivedEvent = null;
+        tracker.OnGameEvent += e =>
+        {
+            if (e.Type == "rest_entered") receivedEvent = e;
+        };
+
+        adapter.HandleRestEntered(new List<RestOption>());
+
+        Assert.NotNull(receivedEvent);
+        Assert.Equal("rest_entered", receivedEvent!.Type);
+    }
 }

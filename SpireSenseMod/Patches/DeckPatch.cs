@@ -8,125 +8,17 @@ namespace SpireSenseMod.Patches;
 
 /// <summary>
 /// Harmony patches for deck/relic state tracking.
-/// Updates the state tracker when cards are added/removed and relics obtained.
+/// Updates the state tracker when relics are obtained and runs start/end.
+///
+/// Migrated to hooks (HookEventAdapter):
+///   - OnCardAdded → HandleCardAddedToDeck (via AfterCardAddedToDeck hook)
+///   - OnCardRemoved → HandleCardRemovedFromDeck (via AfterCardRemovedFromDeck hook)
 ///
 /// All patches use [HarmonyTargetMethod] for manual method resolution to avoid
 /// "Ambiguous match" errors when the game's PatchAll encounters overloaded methods.
 /// </summary>
 public static class DeckPatch
 {
-    /// <summary>
-    /// Postfix: Card added to deck.
-    /// TARGET: CardPileCmd.Add(CardModel, PileType, ...) — static method
-    /// Uses manual resolution because CardPileCmd.Add has multiple overloads.
-    /// </summary>
-    [HarmonyPatch]
-    [HarmonyPriority(Priority.HigherThanNormal)]
-    public static class OnCardAdded
-    {
-        [HarmonyTargetMethod]
-        static MethodBase? TargetMethod()
-        {
-            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Commands.CardPileCmd");
-            if (type == null) return null;
-            return type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
-                .Where(m => m.Name == "Add" && !m.IsGenericMethod)
-                .OrderByDescending(m => m.GetParameters().Length)
-                .FirstOrDefault();
-        }
-
-        [HarmonyPostfix]
-        static void Postfix(object[] __args)
-        {
-            try
-            {
-                // First arg is CardModel
-                if (__args.Length == 0 || __args[0] == null) return;
-                var card = __args[0];
-
-                // Second arg is PileType enum or CardPile object — only track additions to the Deck pile
-                // PileType enum: MegaCrit.Sts2.Core.Entities.Cards.PileType { None, Draw, Hand, Discard, Exhaust, Play, Deck }
-                if (__args.Length > 1 && __args[1] != null)
-                {
-                    var arg = __args[1];
-                    if (arg.GetType().IsEnum)
-                    {
-                        // Direct PileType enum — ToString() returns member name e.g. "Deck"
-                        if (arg.ToString() != "Deck") return;
-                    }
-                    else
-                    {
-                        // CardPile object — check its Type property (which is a PileType enum)
-                        var pileType = GameStateApi.GetProp(arg, "Type")?.ToString();
-                        if (pileType != null && pileType != "Deck") return;
-                    }
-                }
-
-                var cardInfo = GameStateApi.ExtractCardInfo(card);
-
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.Deck.Add(cardInfo);
-                });
-
-                GD.Print($"[SpireSense] Card added to deck: {cardInfo.Name}");
-            }
-            catch (System.Exception ex)
-            {
-                GD.PrintErr($"[SpireSense] CardAdded error: {ex.Message}");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Postfix: Card removed from deck (shop, event, etc.).
-    /// TARGET: CardPileCmd.RemoveFromDeck(CardModel, ...) — static method
-    /// </summary>
-    [HarmonyPatch]
-    [HarmonyPriority(Priority.HigherThanNormal)]
-    public static class OnCardRemoved
-    {
-        [HarmonyTargetMethod]
-        static MethodBase? TargetMethod()
-        {
-            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Commands.CardPileCmd");
-            if (type == null) return null;
-            return type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic)
-                .Where(m => m.Name == "RemoveFromDeck" && !m.IsGenericMethod)
-                .OrderByDescending(m => m.GetParameters().Length)
-                .FirstOrDefault();
-        }
-
-        [HarmonyPostfix]
-        static void Postfix(object[] __args)
-        {
-            try
-            {
-                // First arg is CardModel
-                if (__args.Length == 0 || __args[0] == null) return;
-                var card = __args[0];
-                var cardInfo = GameStateApi.ExtractCardInfo(card);
-
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.Deck.RemoveAll(c => c.Id == cardInfo.Id);
-                });
-
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "card_removed",
-                    Data = new { card = cardInfo },
-                });
-
-                GD.Print($"[SpireSense] Card removed from deck: {cardInfo.Name}");
-            }
-            catch (System.Exception ex)
-            {
-                GD.PrintErr($"[SpireSense] CardRemoved error: {ex.Message}");
-            }
-        }
-    }
-
     /// <summary>
     /// Postfix: Relic obtained.
     /// TARGET: RelicCmd.Obtain(RelicModel, Player, ...) — static method

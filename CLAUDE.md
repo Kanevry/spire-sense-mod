@@ -9,7 +9,7 @@
 - **Patching:** Harmony 2.4.2 (runtime method patching via `[HarmonyPatch]`, .NET 9 native)
 - **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
-- **Status:** Production — Harmony patch targets verified via sts2.dll decompilation (6 patch files + Hook subscriptions, observation-only)
+- **Status:** Production — Harmony patch targets verified via sts2.dll decompilation (5 patch files + 11 Hook subscriptions, observation-only)
 - **Test count:** 155 tests across xUnit test project
 - **Debug Mode:** `Plugin.DebugMode = true` enables TypeDiscovery (runtime assembly scanning)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
@@ -46,13 +46,14 @@ SpireSenseMod/
     CardInfo.cs          # Card with id, name, type, rarity, cost, tags, upgraded
     CombatState.cs       # Combat + PlayerState + MonsterInfo + PowerInfo + PotionInfo + MapNode + EventOption + RelicInfo
   Hooks/
-    HookSubscriptions.cs # STS2 Hook system subscriptions (STD-003): combat, turns, cards, potions, rooms, map
-  Patches/               # Harmony patches — all use [HarmonyPriority(Priority.HigherThanNormal)]
-    CardRewardPatch.cs   # Card reward shown/picked
-    DeckPatch.cs         # Card added/removed, relic obtained, run start/end
-    ShopPatch.cs         # Shop screen entry/exit, card/relic/price extraction
-    EventPatch.cs        # Event encounters, option extraction
-    RestPatch.cs         # Rest site visits, heal/upgrade tracking
+    HookSubscriptions.cs # STS2 Hook system subscriptions (STD-003): 11 hooks — combat, turns, cards, potions, rooms, map, deck
+    HookEventAdapter.cs  # Testable adapter: translates hook data into GameStateTracker mutations
+  Patches/               # Harmony patches (fallback where no Hook exists) — all use [HarmonyPriority(Priority.HigherThanNormal)]
+    CardRewardPatch.cs   # Card reward shown/picked (no Hook equivalent)
+    DeckPatch.cs         # Relic obtained, run start/end (no Hook equivalent)
+    ShopPatch.cs         # Shop exit + inventory extraction (entry detected via AfterRoomEntered)
+    EventPatch.cs        # Event encounters, option extraction (no Hook equivalent)
+    RestPatch.cs         # Rest choice tracking (entry detected via AfterRoomEntered)
   Server/
     HttpServer.cs        # HttpListener on localhost:8080, CORS, 5s timeout, /api/version
     WebSocketServer.cs   # HttpListener on localhost:8081, batched broadcast (50ms / 10 msgs), backpressure
@@ -75,7 +76,7 @@ SpireSenseMod/
 
 ## Patch Priorities
 
-All 8 Harmony patch classes use `[HarmonyPriority(Priority.HigherThanNormal)]` (600). This ensures SpireSense patches run after core game logic completes but before any other third-party mod patches that might transform the data. The priority is applied at the class level, affecting all methods within.
+All Harmony patch classes (11 Hook subscriptions + 10 direct patches) use `[HarmonyPriority(Priority.HigherThanNormal)]` (600). This ensures SpireSense patches run after core game logic completes but before any other third-party mod patches that might transform the data. The priority is applied at the class level, affecting all methods within.
 
 ## WebSocket Batching
 
@@ -117,7 +118,7 @@ Batching: events queued and flushed every 50ms or at 10-message threshold. Initi
 ## Game Integration
 
 - **Framework:** Godot.NET.Sdk -- uses `GD.Print()` for logging, `Engine.GetMainLoop()` for scene access
-- **Patching:** Harmony `PatchAll()` on assembly load. Patches use `[HarmonyPostfix]` to observe without modifying. All patches at `Priority.HigherThanNormal` (600).
+- **Patching:** Harmony `PatchAll()` on assembly load. 11 Hook subscriptions + 9 direct patches, all `[HarmonyPostfix]` to observe without modifying. All patches at `Priority.HigherThanNormal` (600).
 - **State Extraction:** `GameStateApi` uses `Harmony.Traverse` to reflectively read private/internal fields from game objects
 - **Overlay:** `CanvasLayer` at layer 100, attached to scene tree root via `CallDeferred`
 - **Patch Status:** All `[HarmonyPatch]` attributes target decompiled class names from sts2.dll (MegaCrit.Sts2.Core namespace). Targets need re-verification per game update.
@@ -191,6 +192,25 @@ Reference for STS2 internal types (verified via `ilspycmd` against sts2.dll):
 ### Resource & Logging Improvements
 - `HttpServer.cs`: Response OutputStream now explicitly disposed via `using` block
 - `GameStateApi.cs`: All empty catch blocks now log errors via `GD.PrintErr()` for visibility
+
+## Session 20 Changes
+
+### Hook Migrations
+- Migrated CardAdded (DeckPatch.OnCardAdded) to `Hook.AfterCardChangedPiles` — filters for PileType.Deck
+- Migrated CardRemoved (DeckPatch.OnCardRemoved) to `Hook.BeforeCardRemoved` — fires before card is removed
+- Extended AfterRoomEntered for Shop/Rest room type detection (replaces separate ShopPatch.OnShopEntered, RestPatch.OnRestEntered)
+- Decompiled ~90 Hook methods — documented which are available vs. which need Harmony
+
+### Patch File Changes
+- DeckPatch: removed OnCardAdded/OnCardRemoved, kept RelicObtained/RunStart/RunEnd (no Hook equivalent)
+- ShopPatch: removed OnShopEntered (room type detected via AfterRoomEntered), kept OnShopExited (no Hook)
+- RestPatch: removed OnRestEntered (room type detected via AfterRoomEntered), kept OnRestChoice (no Hook)
+- CardRewardPatch + EventPatch: kept as Harmony (no equivalent hooks)
+- 4 Hook migrations + 9 Harmony fallbacks documented in `docs/sts2-class-mapping.md`
+
+### Hook Subscription Count
+- HookSubscriptions.cs: 11 hooks (was 9 in Session 19, added AfterCardChangedPiles + BeforeCardRemoved)
+- Harmony patches: 5 files with 9 direct patches (was 5 files with 13 patches — removed 4)
 
 ## Key Decisions
 

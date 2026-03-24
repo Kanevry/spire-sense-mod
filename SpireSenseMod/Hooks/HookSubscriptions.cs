@@ -610,9 +610,10 @@ public static class HookSubscriptions
     }
 
     /// <summary>
-    /// Postfix: Room entered — update floor, screen, map.
+    /// Postfix: Room entered — update floor, screen, map + detect shop/rest rooms.
     /// TARGET: Hook.AfterRoomEntered(IRunState, AbstractRoom)
     /// Replaces MapPatch.OnFloorChanged (Harmony → Hook migration).
+    /// Also replaces ShopPatch.OnShopEntered and RestPatch.OnRestEntered for room-type detection.
     /// </summary>
     [HarmonyPatch]
     [HarmonyPriority(Priority.HigherThanNormal)]
@@ -678,10 +679,258 @@ public static class HookSubscriptions
                 });
 
                 GD.Print($"[SpireSense] Room entered: floor {floor} ({nodeType}), map: {mapNodes.Count} nodes");
+
+                // ── Shop detection: extract inventory if MerchantRoom ───────
+                if (roomObj != null && roomObj.GetType().Name.Contains("Merchant"))
+                {
+                    try
+                    {
+                        var roomTraverse = Traverse.Create(roomObj);
+                        var inventory = roomTraverse.Field("_inventory")?.GetValue<object>()
+                            ?? roomTraverse.Property("Inventory")?.GetValue<object>();
+
+                        var shopCards = new List<CardInfo>();
+                        var shopRelics = new List<RelicInfo>();
+
+                        if (inventory != null)
+                        {
+                            // Extract card entries (MerchantCardEntry)
+                            var cardEntries = GameStateApi.GetCollection(inventory, "CardEntries", "_cardEntries");
+                            if (cardEntries != null)
+                            {
+                                foreach (var entry in cardEntries)
+                                {
+                                    var entryTraverse = Traverse.Create(entry);
+                                    var cardModel = entryTraverse.Property("CardModel")?.GetValue<object>()
+                                        ?? entryTraverse.Field("_cardModel")?.GetValue<object>();
+                                    if (cardModel != null)
+                                        shopCards.Add(GameStateApi.ExtractCardInfo(cardModel));
+                                }
+                            }
+
+                            // Extract relic entries (MerchantRelicEntry)
+                            var relicEntries = GameStateApi.GetCollection(inventory, "RelicEntries", "_relicEntries");
+                            if (relicEntries != null)
+                            {
+                                foreach (var entry in relicEntries)
+                                {
+                                    var entryTraverse = Traverse.Create(entry);
+                                    var relicModel = entryTraverse.Property("RelicModel")?.GetValue<object>()
+                                        ?? entryTraverse.Field("_relicModel")?.GetValue<object>();
+                                    if (relicModel != null)
+                                        shopRelics.Add(GameStateApi.ExtractRelicInfo(relicModel));
+                                }
+                            }
+                        }
+
+                        Plugin.StateTracker?.UpdateState(state =>
+                        {
+                            state.Screen = ScreenType.Shop;
+                            state.ShopCards = shopCards;
+                            state.ShopRelics = shopRelics;
+                        });
+
+                        Plugin.StateTracker?.EmitEvent(new GameEvent
+                        {
+                            Type = "floor_changed",
+                            Data = new { screen = ScreenType.Shop, shopCards = shopCards.Count, shopRelics = shopRelics.Count },
+                        });
+
+                        GD.Print($"[SpireSense] Shop detected via Hook: {shopCards.Count} cards, {shopRelics.Count} relics");
+                    }
+                    catch (System.Exception shopEx)
+                    {
+                        GD.PrintErr($"[SpireSense] AfterRoomEntered shop extraction error: {shopEx.Message}");
+                    }
+                }
+
+                // ── Rest site detection: extract options if RestSiteRoom ────
+                if (roomObj != null && roomObj.GetType().Name.Contains("RestSite"))
+                {
+                    try
+                    {
+                        var restOptions = new List<RestOption>();
+                        var options = GameStateApi.GetCollection(roomObj, "Options", "_options");
+
+                        if (options != null)
+                        {
+                            foreach (var option in options)
+                            {
+                                var optTraverse = Traverse.Create(option);
+                                restOptions.Add(new RestOption
+                                {
+                                    Id = (optTraverse.Property("OptionId")?.GetValue<object>()
+                                        ?? optTraverse.Field("_optionId")?.GetValue<object>())?.ToString()
+                                        ?? option.GetType().Name.Replace("RestSiteOption", "").ToLowerInvariant(),
+                                    Name = (optTraverse.Property("Title")?.GetValue<object>()
+                                        ?? optTraverse.Field("_title")?.GetValue<object>())?.ToString()
+                                        ?? option.GetType().Name.Replace("RestSiteOption", ""),
+                                    Description = (optTraverse.Property("Description")?.GetValue<object>()
+                                        ?? optTraverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
+                                    Enabled = optTraverse.Property("IsEnabled")?.GetValue<bool>()
+                                        ?? optTraverse.Field("_isEnabled")?.GetValue<bool>()
+                                        ?? true,
+                                });
+                            }
+                        }
+
+                        Plugin.StateTracker?.UpdateState(state =>
+                        {
+                            state.Screen = ScreenType.Rest;
+                            state.RestOptions = restOptions;
+                        });
+
+                        Plugin.StateTracker?.EmitEvent(new GameEvent
+                        {
+                            Type = "rest_entered",
+                            Data = new { options = restOptions },
+                        });
+
+                        GD.Print($"[SpireSense] Rest site detected via Hook: {restOptions.Count} options");
+                    }
+                    catch (System.Exception restEx)
+                    {
+                        GD.PrintErr($"[SpireSense] AfterRoomEntered rest extraction error: {restEx.Message}");
+                    }
+                }
             }
             catch (System.Exception ex)
             {
                 GD.PrintErr($"[SpireSense] AfterRoomEntered error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Card changed piles — detect cards added to deck.
+    /// TARGET: Hook.AfterCardChangedPiles(IRunState, CombatState?, CardModel, PileType oldPile, AbstractModel? source)
+    ///
+    /// Replaces DeckPatch.OnCardAdded (Harmony → Hook migration).
+    /// Fires whenever a card moves between piles. We check if the card's current pile
+    /// is "Deck" to detect additions (reward picks, shop purchases, events).
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterCardChangedPiles
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterCardChangedPiles" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.AfterCardChangedPiles(IRunState, CombatState?, CardModel, PileType oldPile, AbstractModel? source)
+                var cardObj = __args?.Length > 2 ? __args[2] : null;
+                var oldPileObj = __args?.Length > 3 ? __args[3] : null;
+
+                if (cardObj == null) return;
+
+                // Determine the card's current pile — CardModel has a Pile or PileType property
+                var currentPileStr = "";
+                var pileObj = GameStateApi.GetProp(cardObj, "Pile");
+                if (pileObj != null)
+                {
+                    // Pile may be a CardPile object with a Type property, or a PileType enum directly
+                    var pileType = GameStateApi.GetProp(pileObj, "Type");
+                    currentPileStr = (pileType ?? pileObj).ToString() ?? "";
+                }
+                else
+                {
+                    // Fallback: try PileType property directly on CardModel
+                    var pileType = GameStateApi.GetProp(cardObj, "PileType");
+                    currentPileStr = pileType?.ToString() ?? "";
+                }
+
+                // Only track cards that moved TO the Deck pile (not combat piles like Hand, Draw, Discard)
+                if (!currentPileStr.Contains("Deck")) return;
+
+                // oldPile should NOT be Deck (we only want new additions, not Deck→Deck moves)
+                var oldPileStr = oldPileObj?.ToString() ?? "";
+                if (oldPileStr.Contains("Deck")) return;
+
+                var cardInfo = GameStateApi.ExtractCardInfo(cardObj);
+
+                Plugin.StateTracker?.UpdateState(state =>
+                {
+                    state.Deck.Add(cardInfo);
+                });
+
+                Plugin.StateTracker?.EmitEvent(new GameEvent
+                {
+                    Type = "deck_changed",
+                    Data = new { action = "added", card = cardInfo },
+                });
+
+                GD.Print($"[SpireSense] Card added to deck (Hook): {cardInfo.Name} (from {oldPileStr})");
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterCardChangedPiles error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Card about to be removed — track deck removals.
+    /// TARGET: Hook.BeforeCardRemoved(IRunState, CardModel)
+    ///
+    /// Replaces DeckPatch.OnCardRemoved (Harmony → Hook migration).
+    /// Fires before a card is permanently removed from the game (shop removal, events).
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnBeforeCardRemoved
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "BeforeCardRemoved" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.BeforeCardRemoved(IRunState, CardModel)
+                var cardObj = __args?.Length > 1 ? __args[1] : null;
+                if (cardObj == null) return;
+
+                var cardInfo = GameStateApi.ExtractCardInfo(cardObj);
+
+                Plugin.StateTracker?.UpdateState(state =>
+                {
+                    var index = state.Deck.FindIndex(c => c.Id == cardInfo.Id);
+                    if (index >= 0)
+                        state.Deck.RemoveAt(index);
+                });
+
+                Plugin.StateTracker?.EmitEvent(new GameEvent
+                {
+                    Type = "card_removed",
+                    Data = new { card = cardInfo },
+                });
+
+                GD.Print($"[SpireSense] Card removed from deck (Hook): {cardInfo.Name}");
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] BeforeCardRemoved error: {ex.Message}");
             }
         }
     }
