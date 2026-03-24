@@ -19,6 +19,9 @@ public class GameStateTracker
     private readonly Queue<BufferedEvent> _eventBuffer = new();
     private const int MaxEventBufferSize = 100;
 
+    // Combat polling removed — Godot objects are not thread-safe.
+    // Live updates handled by client-side HTTP polling instead.
+
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -158,4 +161,7 @@ public class GameStateTracker
         }
         EmitEvent(new GameEvent { Type = "state_update" }, snapshot);
     }
+
+    // StartCombatPolling/StopCombatPolling removed — Godot objects are not thread-safe.
+    // Client-side HTTP polling provides live combat updates instead.
 }

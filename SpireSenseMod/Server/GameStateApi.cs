@@ -205,7 +205,7 @@ public static class GameStateApi
                     descUpgraded = System.Text.RegularExpressions.Regex.Replace(descUpgraded, @"\[img\][^\[]*\[/img\]", "").Trim();
                 }
             }
-            catch { /* Upgraded description not available — keep empty */ }
+            catch (System.Exception ex) { GD.PrintErr($"[SpireSense] Failed to get upgraded description: {ex.Message}"); }
 
             // Character from Pool (e.g., "CARD_POOL.IRONCLAD_CARD_POOL (44127137)" → "ironclad")
             var poolStr = traverse.Property("Pool")?.GetValue<object>()?.ToString() ?? "";
@@ -232,7 +232,7 @@ public static class GameStateApi
                     }
                 }
             }
-            catch { /* Tags not available on this card */ }
+            catch (System.Exception ex) { GD.PrintErr($"[SpireSense] Failed to extract card tags: {ex.Message}"); }
 
             try
             {
@@ -247,7 +247,7 @@ public static class GameStateApi
                     }
                 }
             }
-            catch { /* Keywords not available on this card */ }
+            catch (System.Exception ex) { GD.PrintErr($"[SpireSense] Failed to extract card keywords: {ex.Message}"); }
 
             return new CardInfo
             {
@@ -440,7 +440,7 @@ public static class GameStateApi
                                         intentDmg = System.Convert.ToInt32(dmgResult);
                                 }
                             }
-                            catch { /* DamageCalc may throw outside combat context */ }
+                            catch (System.Exception ex) { GD.PrintErr($"[SpireSense] DamageCalc failed: {ex.Message}"); }
                         }
                     }
                     intentStr = CombineIntentTypes(intentTypes);
@@ -902,7 +902,7 @@ public static class GameStateApi
                 var instanceProp = rmType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
                 runManager = instanceProp?.GetValue(null);
             }
-            catch { /* Not a singleton */ }
+            catch (System.Exception ex) { GD.PrintErr($"[SpireSense] RunManager singleton access failed: {ex.Message}"); }
 
             if (runManager == null) return;
             var runState = GetProp(runManager, "State");
@@ -933,9 +933,20 @@ public static class GameStateApi
                 }
             }
 
-            // Refresh card piles from cached CombatState
+            // Refresh monsters + card piles from cached CombatState
             if (CurrentCombatState != null)
+            {
+                // Update monster HP/Block/Intent from live CombatState.Enemies
+                var enemies = GetCollection(CurrentCombatState, "Enemies", "_enemies");
+                if (enemies != null)
+                {
+                    state.Combat.Monsters.Clear();
+                    foreach (var monster in enemies)
+                        state.Combat.Monsters.Add(ExtractMonsterInfo(monster));
+                }
+
                 ExtractCardPilesFromCombat(CurrentCombatState, state.Combat);
+            }
         });
     }
 }

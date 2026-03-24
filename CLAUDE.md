@@ -9,7 +9,7 @@
 - **Patching:** Harmony 2.4.2 (runtime method patching via `[HarmonyPatch]`, .NET 9 native)
 - **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
-- **Status:** Production — 20 Harmony patch targets verified via sts2.dll decompilation (8 patch files, observation-only)
+- **Status:** Production — Harmony patch targets verified via sts2.dll decompilation (6 patch files + Hook subscriptions, observation-only)
 - **Test count:** 155 tests across xUnit test project
 - **Debug Mode:** `Plugin.DebugMode = true` enables TypeDiscovery (runtime assembly scanning)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
@@ -45,15 +45,14 @@ SpireSenseMod/
     GameState.cs         # Full snapshot: screen, character, act, floor, deck, relics, combat, map, shop, events
     CardInfo.cs          # Card with id, name, type, rarity, cost, tags, upgraded
     CombatState.cs       # Combat + PlayerState + MonsterInfo + PowerInfo + PotionInfo + MapNode + EventOption + RelicInfo
+  Hooks/
+    HookSubscriptions.cs # STS2 Hook system subscriptions (STD-003): combat, turns, cards, potions, rooms, map
   Patches/               # Harmony patches — all use [HarmonyPriority(Priority.HigherThanNormal)]
     CardRewardPatch.cs   # Card reward shown/picked
-    CombatPatch.cs       # Combat start/end, turn start, card played
-    MapPatch.cs          # Floor/map navigation
     DeckPatch.cs         # Card added/removed, relic obtained, run start/end
     ShopPatch.cs         # Shop screen entry/exit, card/relic/price extraction
     EventPatch.cs        # Event encounters, option extraction
     RestPatch.cs         # Rest site visits, heal/upgrade tracking
-    PotionPatch.cs       # Potion usage and acquisition
   Server/
     HttpServer.cs        # HttpListener on localhost:8080, CORS, 5s timeout, /api/version
     WebSocketServer.cs   # HttpListener on localhost:8081, batched broadcast (50ms / 10 msgs), backpressure
@@ -180,6 +179,18 @@ Reference for STS2 internal types (verified via `ilspycmd` against sts2.dll):
 - `GetDescriptionForUpgradePreview()` — returns upgraded card description text
 - `Tags` — `CardTag` flags enum
 - `Keywords` — `CardKeyword` flags enum
+
+## Session 19 Changes
+
+### Hook Migration (STD-003)
+- Migrated `PotionPatch` (OnPotionUsed, OnPotionObtained) to Hook system: `Hook.AfterPotionUsed`, `Hook.AfterPotionProcured`
+- Migrated `MapPatch` (OnFloorChanged) to Hook system: `Hook.AfterRoomEntered`
+- Deleted `PotionPatch.cs` and `MapPatch.cs` — replaced by `HookSubscriptions.cs`
+- Decompiled Hook signatures from sts2.dll: AfterPotionUsed(IRunState, CombatState?, PotionModel, Creature?), AfterPotionProcured(IRunState, CombatState?, PotionModel), AfterRoomEntered(IRunState, AbstractRoom)
+
+### Resource & Logging Improvements
+- `HttpServer.cs`: Response OutputStream now explicitly disposed via `using` block
+- `GameStateApi.cs`: All empty catch blocks now log errors via `GD.PrintErr()` for visibility
 
 ## Key Decisions
 

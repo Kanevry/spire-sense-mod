@@ -248,8 +248,11 @@ public class HttpServer : IDisposable
         var bytes = Encoding.UTF8.GetBytes(json);
 
         response.ContentLength64 = bytes.Length;
-        response.OutputStream.Write(bytes, 0, bytes.Length);
-        response.OutputStream.Flush();
+        using (var output = response.OutputStream)
+        {
+            output.Write(bytes, 0, bytes.Length);
+            output.Flush();
+        }
         response.Close();
     }
 }

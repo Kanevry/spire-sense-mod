@@ -429,4 +429,260 @@ public static class HookSubscriptions
             }
         }
     }
+
+    /// <summary>
+    /// Postfix: Attack resolves — refresh monster HP/Block after damage is applied.
+    /// TARGET: Hook.AfterAttack(CombatState, AttackCommand)
+    ///
+    /// AfterCardPlayed fires before damage is applied (async game actions).
+    /// AfterAttack fires AFTER the attack command completes, so HP is accurate.
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterAttack
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterAttack" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.AfterAttack(CombatState, AttackCommand)
+                var combatStateObj = __args?.Length > 0 ? __args[0] : null;
+                if (combatStateObj != null)
+                    GameStateApi.CurrentCombatState = combatStateObj;
+
+                // Refresh full combat state — HP is now accurate post-damage
+                GameStateApi.RefreshCombatState();
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterAttack error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Potion used — emit event, update potion inventory.
+    /// TARGET: Hook.AfterPotionUsed(IRunState, CombatState?, PotionModel, Creature?)
+    /// Replaces PotionPatch.OnPotionUsed (Harmony → Hook migration).
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterPotionUsed
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterPotionUsed" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.AfterPotionUsed(IRunState, CombatState?, PotionModel, Creature?)
+                var potionObj = __args?.Length > 2 ? __args[2] : null;
+                var targetObj = __args?.Length > 3 ? __args[3] : null;
+
+                var potionInfo = new PotionInfo();
+                if (potionObj != null)
+                {
+                    var pt = Traverse.Create(potionObj);
+                    potionInfo = new PotionInfo
+                    {
+                        Id = (pt.Property("PotionId")?.GetValue<object>()
+                            ?? GameStateApi.GetProp(potionObj, "PotionId"))?.ToString() ?? "",
+                        Name = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Name")),
+                        Description = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Description")),
+                        CanUse = false,
+                    };
+                }
+
+                var targetName = "";
+                if (targetObj != null)
+                {
+                    targetName = Traverse.Create(targetObj).Property("Name")?.GetValue<string>() ?? "";
+                }
+
+                Plugin.StateTracker?.EmitEvent(new GameEvent
+                {
+                    Type = "potion_used",
+                    Data = new { potion = potionInfo, target = targetName },
+                });
+
+                Plugin.StateTracker?.UpdateState(state =>
+                {
+                    if (state.Combat?.Player.Potions != null)
+                    {
+                        state.Combat.Player.Potions.RemoveAll(p => p.Id == potionInfo.Id);
+                    }
+                });
+
+                GD.Print($"[SpireSense] Potion used: {potionInfo.Name}");
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterPotionUsed error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Potion obtained — update inventory, emit event.
+    /// TARGET: Hook.AfterPotionProcured(IRunState, CombatState?, PotionModel)
+    /// Replaces PotionPatch.OnPotionObtained (Harmony → Hook migration).
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterPotionProcured
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterPotionProcured" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.AfterPotionProcured(IRunState, CombatState?, PotionModel)
+                var potionObj = __args?.Length > 2 ? __args[2] : null;
+
+                var potionInfo = new PotionInfo();
+                if (potionObj != null)
+                {
+                    var pt = Traverse.Create(potionObj);
+                    potionInfo = new PotionInfo
+                    {
+                        Id = (pt.Property("PotionId")?.GetValue<object>()
+                            ?? GameStateApi.GetProp(potionObj, "PotionId"))?.ToString() ?? "",
+                        Name = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Name")),
+                        Description = GameStateApi.ResolveLocString(GameStateApi.GetProp(potionObj, "Description")),
+                        CanUse = true,
+                    };
+                }
+
+                Plugin.StateTracker?.UpdateState(state =>
+                {
+                    if (state.Combat?.Player.Potions != null)
+                    {
+                        state.Combat.Player.Potions.Add(potionInfo);
+                    }
+                });
+
+                Plugin.StateTracker?.EmitEvent(new GameEvent
+                {
+                    Type = "potion_obtained",
+                    Data = new { potion = potionInfo },
+                });
+
+                GD.Print($"[SpireSense] Potion obtained: {potionInfo.Name}");
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterPotionProcured error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Room entered — update floor, screen, map.
+    /// TARGET: Hook.AfterRoomEntered(IRunState, AbstractRoom)
+    /// Replaces MapPatch.OnFloorChanged (Harmony → Hook migration).
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterRoomEntered
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterRoomEntered" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.AfterRoomEntered(IRunState, AbstractRoom)
+                var runStateObj = __args?.Length > 0 ? __args[0] : null;
+                var roomObj = __args?.Length > 1 ? __args[1] : null;
+
+                var nodeType = "monster";
+                if (roomObj != null)
+                {
+                    var roomType = GameStateApi.GetProp(roomObj, "RoomType")
+                        ?? Traverse.Create(roomObj).Property("RoomType")?.GetValue<object>();
+                    nodeType = roomType?.ToString()?.ToLowerInvariant() ?? "monster";
+                }
+
+                var floor = 0;
+                var mapNodes = new List<MapNode>();
+
+                if (runStateObj != null)
+                {
+                    var rsTraverse = Traverse.Create(runStateObj);
+                    floor = rsTraverse.Property("ActFloor")?.GetValue<int>()
+                        ?? rsTraverse.Property("TotalFloor")?.GetValue<int>()
+                        ?? 0;
+
+                    var mapData = rsTraverse.Property("Map")?.GetValue<object>()
+                        ?? GameStateApi.GetField(runStateObj, "_map");
+                    if (mapData != null)
+                    {
+                        mapNodes = GameStateApi.ExtractMapNodes(mapData);
+                    }
+                }
+
+                Plugin.StateTracker?.UpdateState(state =>
+                {
+                    state.Floor = floor;
+                    state.Screen = ScreenType.Map;
+                    state.Map = mapNodes;
+                });
+
+                Plugin.StateTracker?.EmitEvent(new GameEvent
+                {
+                    Type = "floor_changed",
+                    Data = new { floor, node = new MapNode { Type = nodeType, Visited = true } },
+                });
+
+                GD.Print($"[SpireSense] Room entered: floor {floor} ({nodeType}), map: {mapNodes.Count} nodes");
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterRoomEntered error: {ex.Message}");
+            }
+        }
+    }
 }
