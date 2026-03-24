@@ -125,28 +125,37 @@ public class GameStateTracker
 
     public void SetScreen(string screen)
     {
+        string snapshot;
         lock (_lock)
         {
             _currentState.Screen = screen;
             _serializedState = JsonSerializer.Serialize(_currentState, _jsonOptions);
+            snapshot = _serializedState;
         }
+        EmitEvent(new GameEvent { Type = "state_update" }, snapshot);
     }
 
     public void SetCombatState(CombatState? combat)
     {
+        string snapshot;
         lock (_lock)
         {
             _currentState.Combat = combat;
             _serializedState = JsonSerializer.Serialize(_currentState, _jsonOptions);
+            snapshot = _serializedState;
         }
+        EmitEvent(new GameEvent { Type = "state_update" }, snapshot);
     }
 
     public void SetCardRewards(List<CardInfo>? rewards)
     {
+        string snapshot;
         lock (_lock)
         {
             _currentState.CardRewards = rewards;
             _serializedState = JsonSerializer.Serialize(_currentState, _jsonOptions);
+            snapshot = _serializedState;
         }
+        EmitEvent(new GameEvent { Type = "state_update" }, snapshot);
     }
 }

@@ -199,19 +199,21 @@ public static class DeckPatch
                 var ascension = 0;
                 var seed = "";
 
+                var startingDeck = new List<CardInfo>();
+                var startingRelics = new List<RelicInfo>();
+
                 if (__result != null)
                 {
                     GameStateApi.DumpObjectOnce(__result, "RunState");
-                    var rsTraverse = Traverse.Create(__result);
 
-                    // Get seed from RunState
-                    seed = rsTraverse.Property("Seed")?.GetValue<string>()
-                        ?? rsTraverse.Field("_seed")?.GetValue<string>()
-                        ?? "";
+                    // Get seed from RunState — use direct reflection (Traverse fails for non-string types)
+                    var seedObj = GameStateApi.GetProp(__result, "Seed")
+                        ?? GameStateApi.GetField(__result, "_seed");
+                    seed = seedObj?.ToString() ?? "";
 
                     // Get ascension from RunState
-                    ascension = rsTraverse.Property("AscensionLevel")?.GetValue<int>()
-                        ?? rsTraverse.Field("_ascensionLevel")?.GetValue<int>()
+                    ascension = (int?)GameStateApi.GetProp(__result, "AscensionLevel")
+                        ?? Traverse.Create(__result).Field("_ascensionLevel")?.GetValue<int>()
                         ?? 0;
 
                     // Get players from RunState — use GetCollection for IReadOnlyList
@@ -222,16 +224,62 @@ public static class DeckPatch
                         foreach (var player in playerEnum)
                         {
                             GameStateApi.DumpObjectOnce(player, "RunState.Player");
-                            var playerTraverse = Traverse.Create(player);
-                            // Player.Character (CharacterModel) → "CHARACTER.IRONCLAD (41244374)"
-                            var charStr = playerTraverse.Property("Character")?.GetValue<object>()?.ToString() ?? "";
+
+                            // Extract character
+                            var charStr = GameStateApi.GetProp(player, "Character")?.ToString() ?? "";
                             if (charStr.Contains("IRONCLAD")) character = "ironclad";
                             else if (charStr.Contains("SILENT")) character = "silent";
                             else if (charStr.Contains("DEFECT")) character = "defect";
                             else if (charStr.Contains("REGENT")) character = "regent";
                             else if (charStr.Contains("NECROBINDER")) character = "necrobinder";
                             else if (charStr.Contains("DEPRIVED")) character = "deprived";
-                            break;
+
+                            // Extract starting deck from Player.Deck (CardPile)
+                            var deckPile = GameStateApi.GetProp(player, "Deck");
+                            if (deckPile != null)
+                            {
+                                GameStateApi.DumpObjectOnce(deckPile, "Player.Deck");
+                                // CardPile may be IEnumerable directly, or have a Cards property
+                                var deckCards = GameStateApi.GetCollection(deckPile, "Cards")
+                                    ?? deckPile as System.Collections.IEnumerable;
+                                if (deckCards != null)
+                                    startingDeck = GameStateApi.ExtractCardsFromEnum(deckCards);
+                            }
+
+                            // Fallback: try Player.Piles, filter for PileType.Deck
+                            if (startingDeck.Count == 0)
+                            {
+                                var piles = GameStateApi.GetCollection(player, "Piles")
+                                    ?? GameStateApi.GetField(player, "_runPiles") as System.Collections.IEnumerable;
+                                if (piles != null)
+                                {
+                                    foreach (var pile in piles)
+                                    {
+                                        var pileType = GameStateApi.GetProp(pile, "Type")?.ToString();
+                                        if (pileType == "Deck")
+                                        {
+                                            var cards = GameStateApi.GetCollection(pile, "Cards")
+                                                ?? pile as System.Collections.IEnumerable;
+                                            if (cards != null)
+                                                startingDeck = GameStateApi.ExtractCardsFromEnum(cards);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Extract starting relics from Player.Relics (IReadOnlyList)
+                            var relicColl = GameStateApi.GetCollection(player, "Relics", "_relics");
+                            if (relicColl != null)
+                            {
+                                foreach (var relic in relicColl)
+                                {
+                                    if (relic != null)
+                                        startingRelics.Add(GameStateApi.ExtractRelicInfo(relic));
+                                }
+                            }
+
+                            break; // First player only
                         }
                     }
                 }
@@ -244,8 +292,8 @@ public static class DeckPatch
                     Floor = 0,
                     Ascension = ascension,
                     Seed = seed,
-                    Deck = new List<CardInfo>(),
-                    Relics = new List<RelicInfo>(),
+                    Deck = startingDeck,
+                    Relics = startingRelics,
                 });
 
                 Plugin.StateTracker?.EmitEvent(new GameEvent
@@ -254,7 +302,7 @@ public static class DeckPatch
                     Data = new { character, ascension, seed },
                 });
 
-                GD.Print($"[SpireSense] Run started: {character} A{ascension}");
+                GD.Print($"[SpireSense] Run started: {character} A{ascension}, deck={startingDeck.Count}, relics={startingRelics.Count}, seed={seed}");
             }
             catch (System.Exception ex)
             {

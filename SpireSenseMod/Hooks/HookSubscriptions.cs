@@ -306,6 +306,49 @@ public static class HookSubscriptions
     }
 
     /// <summary>
+    /// Postfix: Map is generated — extract map nodes.
+    /// TARGET: Hook.AfterMapGenerated(IRunState, ActMap, int actIndex)
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterMapGenerated
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterMapGenerated" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Hook.AfterMapGenerated(IRunState, ActMap, int actIndex)
+                var actMapObj = __args?.Length > 1 ? __args[1] : null;
+                if (actMapObj != null)
+                {
+                    var mapNodes = GameStateApi.ExtractMapNodes(actMapObj);
+                    Plugin.StateTracker?.UpdateState(state =>
+                    {
+                        state.Map = mapNodes;
+                    });
+                    GD.Print($"[SpireSense] Map generated: {mapNodes.Count} nodes");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterMapGenerated error: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
     /// Postfix: Card is played — extract card info, emit event, refresh state.
     /// TARGET: Hook.AfterCardPlayed(CombatState, PlayerChoiceContext, CardPlay)
     ///

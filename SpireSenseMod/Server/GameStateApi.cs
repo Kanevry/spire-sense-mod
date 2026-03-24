@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using HarmonyLib;
 
@@ -29,9 +30,9 @@ public static class GameStateApi
     public static object? GetProp(object? obj, string name)
         => obj?.GetType().GetProperty(name)?.GetValue(obj);
 
-    /// <summary>Get a private/internal field value via direct reflection.</summary>
+    /// <summary>Get a field value via direct reflection (public + private).</summary>
     public static object? GetField(object? obj, string name)
-        => obj?.GetType().GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(obj);
+        => obj?.GetType().GetField(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(obj);
 
     /// <summary>Get a collection (IEnumerable) from a property, with optional field fallback.</summary>
     public static System.Collections.IEnumerable? GetCollection(object? obj, string propName, string? fieldFallback = null)
@@ -45,23 +46,46 @@ public static class GameStateApi
     public static string ResolveLocString(object? locStringObj)
     {
         if (locStringObj == null) return "";
-        var lsTraverse = Traverse.Create(locStringObj);
 
-        // Try direct text properties first (in case future versions add them)
-        var text = lsTraverse.Property("Text")?.GetValue<string>();
+        // Use direct reflection — Traverse can fail for some property types
+        // Try direct text/value properties first
+        var text = GetProp(locStringObj, "Text")?.ToString();
         if (!string.IsNullOrEmpty(text)) return text;
 
-        // Resolve via Godot TranslationServer using LocEntryKey
-        var entryKey = lsTraverse.Property("LocEntryKey")?.GetValue<string>()
-            ?? lsTraverse.Field("locEntryKey")?.GetValue<string>();
+        text = GetProp(locStringObj, "Value")?.ToString();
+        if (!string.IsNullOrEmpty(text)) return text;
+
+        // Try ToString() — some LocString types auto-resolve
+        var toStr = locStringObj.ToString();
+        if (!string.IsNullOrEmpty(toStr) && !toStr.Contains("LocString") && !toStr.Contains("MegaCrit"))
+            return toStr;
+
+        // Get LocTable and LocEntryKey for TranslationServer
+        var locTable = GetProp(locStringObj, "LocTable")?.ToString()
+            ?? GetField(locStringObj, "locTable")?.ToString();
+        var entryKey = GetProp(locStringObj, "LocEntryKey")?.ToString()
+            ?? GetField(locStringObj, "locEntryKey")?.ToString();
+
         if (!string.IsNullOrEmpty(entryKey))
         {
-            // Try Godot's built-in translation
-            var translated = TranslationServer.Translate(entryKey);
-            if (translated != null && translated != entryKey)
-                return translated;
+            // Strategy 1: Combined table.key (e.g., "cards/RAGE.description")
+            if (!string.IsNullOrEmpty(locTable))
+            {
+                var combined = $"{locTable}/{entryKey}";
+                var translated = TranslationServer.Translate(combined);
+                if (translated != null && translated != combined) return translated;
 
-            // Fallback: use the entry key itself (e.g., "RAGE.description")
+                // Also try with dot separator
+                combined = $"{locTable}.{entryKey}";
+                translated = TranslationServer.Translate(combined);
+                if (translated != null && translated != combined) return translated;
+            }
+
+            // Strategy 2: Just the entry key
+            var translated2 = TranslationServer.Translate(entryKey);
+            if (translated2 != null && translated2 != entryKey) return translated2;
+
+            // Fallback: return the raw key (frontend has card data from spire-codex)
             return entryKey;
         }
 
@@ -230,21 +254,60 @@ public static class GameStateApi
         try
         {
             DumpObjectOnce(gameRelic, "Relic");
-            var traverse = Traverse.Create(gameRelic);
+
+            // ID from CanonicalInstance (e.g., "RELIC.BURNING_BLOOD (33410170)" → "burning_blood")
+            // or from Id (ModelId, e.g., "RELIC.BURNING_BLOOD")
+            var canonicalStr = GetProp(gameRelic, "CanonicalInstance")?.ToString() ?? "";
+            var relicId = "";
+            if (canonicalStr.StartsWith("RELIC."))
+            {
+                var spaceIdx = canonicalStr.IndexOf(' ');
+                relicId = (spaceIdx > 6 ? canonicalStr.Substring(6, spaceIdx - 6) : canonicalStr.Substring(6)).ToLowerInvariant();
+            }
+            if (string.IsNullOrEmpty(relicId))
+            {
+                var modelId = GetProp(gameRelic, "Id")?.ToString() ?? "";
+                if (modelId.StartsWith("RELIC."))
+                    relicId = modelId.Substring(6).ToLowerInvariant();
+            }
+
+            // Name from HoverTip.Title (e.g., "Burning Blood")
+            var name = "";
+            var hoverTip = GetProp(gameRelic, "HoverTip");
+            if (hoverTip != null)
+            {
+                name = GetProp(hoverTip, "Title")?.ToString() ?? "";
+            }
+
+            // Description from HoverTip.Description (contains BBCode like [green]6[/green])
+            var description = "";
+            if (hoverTip != null)
+            {
+                var rawDesc = GetProp(hoverTip, "Description")?.ToString() ?? "";
+                // Strip BBCode tags for clean text
+                description = System.Text.RegularExpressions.Regex.Replace(rawDesc, @"\[/?[^\]]+\]", "");
+            }
+
+            // Rarity from direct property
+            var rarity = (GetProp(gameRelic, "Rarity")?.ToString() ?? "common").ToLowerInvariant();
+
+            // Character from Pool (e.g., "RELIC_POOL.IRONCLAD_RELIC_POOL (22415451)")
+            var poolStr = GetProp(gameRelic, "Pool")?.ToString() ?? "";
+            var character = "neutral";
+            if (poolStr.Contains("IRONCLAD")) character = "ironclad";
+            else if (poolStr.Contains("SILENT")) character = "silent";
+            else if (poolStr.Contains("DEFECT")) character = "defect";
+            else if (poolStr.Contains("REGENT")) character = "regent";
+            else if (poolStr.Contains("NECROBINDER")) character = "necrobinder";
+            else if (poolStr.Contains("DEPRIVED")) character = "deprived";
 
             return new RelicInfo
             {
-                Id = (traverse.Property("RelicId")?.GetValue<object>()
-                    ?? traverse.Field("_relicId")?.GetValue<object>())?.ToString() ?? "",
-                Name = (traverse.Property("Name")?.GetValue<object>()
-                    ?? traverse.Field("_name")?.GetValue<object>())?.ToString() ?? "",
-                Character = (traverse.Property("CharacterId")?.GetValue<object>()
-                    ?? traverse.Field("_characterId")?.GetValue<object>()
-                    ?? traverse.Property("Color")?.GetValue<object>())?.ToString()?.ToLowerInvariant() ?? "neutral",
-                Rarity = (traverse.Property("Rarity")?.GetValue<object>()
-                    ?? traverse.Field("_rarity")?.GetValue<object>())?.ToString()?.ToLowerInvariant() ?? "common",
-                Description = (traverse.Property("Description")?.GetValue<object>()
-                    ?? traverse.Field("_description")?.GetValue<object>())?.ToString() ?? "",
+                Id = relicId,
+                Name = name,
+                Character = character,
+                Rarity = rarity,
+                Description = description,
                 Tags = new List<string>(),
             };
         }
@@ -265,33 +328,113 @@ public static class GameStateApi
         DumpObjectOnce(gameMonster, "Monster");
         var traverse = Traverse.Create(gameMonster);
 
+        // Use direct reflection for all fields — Traverse fails for enum types and collections
+        // Creature has: Block, CurrentHp, MaxHp, ModelId, Name, Monster (MonsterModel), Powers
+        // Intent system (from decompiled sts2.dll):
+        //   Creature.Monster → MonsterModel
+        //   MonsterModel.NextMove → MoveState
+        //   MoveState.Intents → IReadOnlyList<AbstractIntent>
+        //   AbstractIntent.IntentType → IntentType enum (Attack, Buff, Debuff, Defend, etc.)
+        //   AttackIntent.DamageCalc → Func<decimal> (base damage)
+
+        var monsterModel = GetProp(gameMonster, "Monster");
+
+        // Extract intent from MonsterModel.NextMove.Intents
+        var intentStr = "unknown";
+        var intentDmg = 0;
+        if (monsterModel != null)
+        {
+            var nextMove = GetProp(monsterModel, "NextMove"); // MoveState
+            if (nextMove != null)
+            {
+                var intents = GetCollection(nextMove, "Intents"); // IReadOnlyList<AbstractIntent>
+                if (intents != null)
+                {
+                    var intentTypes = new List<string>();
+                    foreach (var intent in intents)
+                    {
+                        if (intent == null) continue;
+                        // AbstractIntent.IntentType is an enum
+                        var intentType = GetProp(intent, "IntentType")?.ToString()?.ToLowerInvariant() ?? "";
+                        intentTypes.Add(intentType);
+
+                        // If this is an AttackIntent, get damage from DamageCalc
+                        if ((intentType == "attack" || intentType == "deathblow") && intentDmg == 0)
+                        {
+                            try
+                            {
+                                // AttackIntent.DamageCalc is Func<decimal> — invoke it
+                                var damageCalc = GetProp(intent, "DamageCalc") as System.Delegate;
+                                if (damageCalc != null)
+                                {
+                                    var dmgResult = damageCalc.DynamicInvoke();
+                                    if (dmgResult is decimal decDmg)
+                                        intentDmg = (int)decDmg;
+                                    else if (dmgResult != null)
+                                        intentDmg = System.Convert.ToInt32(dmgResult);
+                                }
+                            }
+                            catch { /* DamageCalc may throw outside combat context */ }
+                        }
+                    }
+                    intentStr = CombineIntentTypes(intentTypes);
+                }
+            }
+        }
+
         var info = new MonsterInfo
         {
-            // Creature.ModelId gives "MONSTER.NIBBIT", Creature.Name gives "Nibbit"
-            Id = (traverse.Property("ModelId")?.GetValue<object>()
-                ?? traverse.Property("Monster")?.GetValue<object>()
-                ?? traverse.Property("MonsterId")?.GetValue<object>())?.ToString() ?? "",
-            Name = traverse.Property("Name")?.GetValue<string>()
-                ?? (traverse.Property("Name")?.GetValue<object>())?.ToString() ?? "",
-            Hp = traverse.Property("CurrentHp")?.GetValue<int>()
+            Id = GetProp(gameMonster, "ModelId")?.ToString() ?? "",
+            Name = GetProp(gameMonster, "Name")?.ToString() ?? "",
+            Hp = (int?)GetProp(gameMonster, "CurrentHp")
                 ?? traverse.Field("_currentHp")?.GetValue<int>()
                 ?? 0,
-            MaxHp = traverse.Property("MaxHp")?.GetValue<int>()
+            MaxHp = (int?)GetProp(gameMonster, "MaxHp")
                 ?? traverse.Field("_maxHp")?.GetValue<int>()
                 ?? 0,
-            Block = traverse.Property("Block")?.GetValue<int>()
+            Block = (int?)GetProp(gameMonster, "Block")
                 ?? traverse.Field("_block")?.GetValue<int>()
                 ?? 0,
-            Intent = (traverse.Property("Intent")?.GetValue<object>()?.ToString()
-                ?? traverse.Field("_intent")?.GetValue<object>()?.ToString()
-                ?? "unknown").ToLowerInvariant(),
-            IntentDamage = traverse.Property("IntentDamage")?.GetValue<int>()
-                ?? traverse.Field("_intentDamage")?.GetValue<int>()
-                ?? 0,
+            Intent = intentStr,
+            IntentDamage = intentDmg,
             Powers = ExtractPowersFromEnum(GetCollection(gameMonster, "Powers", "_powers")),
         };
 
         return info;
+    }
+
+    /// <summary>
+    /// Combine multiple STS2 AbstractIntent.IntentType values into a single frontend intent string.
+    /// STS2 IntentType enum (from sts2.dll decompile):
+    ///   Attack, Buff, Debuff, DebuffStrong, Defend, Escape, Heal, Hidden,
+    ///   Summon, Sleep, Stun, StatusCard, CardDebuff, DeathBlow, Unknown
+    /// Frontend expects: attack, defend, buff, debuff, attack_defend, attack_buff,
+    ///                   attack_debuff, unknown, sleeping, stunned
+    /// </summary>
+    public static string CombineIntentTypes(List<string> intentTypes)
+    {
+        if (intentTypes.Count == 0) return "unknown";
+
+        var hasAttack = intentTypes.Any(t => t == "attack" || t == "deathblow");
+        var hasDefend = intentTypes.Any(t => t == "defend");
+        var hasBuff = intentTypes.Any(t => t == "buff" || t == "heal" || t == "summon");
+        var hasDebuff = intentTypes.Any(t => t == "debuff" || t == "debuffstrong" || t == "statuscard" || t == "carddebuff");
+        var hasSleep = intentTypes.Any(t => t == "sleep");
+        var hasStun = intentTypes.Any(t => t == "stun");
+
+        if (hasSleep) return "sleeping";
+        if (hasStun) return "stunned";
+
+        if (hasAttack && hasDefend) return "attack_defend";
+        if (hasAttack && hasBuff) return "attack_buff";
+        if (hasAttack && hasDebuff) return "attack_debuff";
+        if (hasAttack) return "attack";
+        if (hasDefend) return "defend";
+        if (hasBuff) return "buff";
+        if (hasDebuff) return "debuff";
+
+        // Hidden, Escape, Unknown → unknown
+        return "unknown";
     }
 
     /// <summary>Extract powers from an IEnumerable (obtained via GetCollection).</summary>
@@ -419,6 +562,27 @@ public static class GameStateApi
     /// ActMap contains map points with MapPointType and connections.
     /// MapPoint has Coord (MapCoord with X, Y), Type (MapPointType), connections.
     /// </summary>
+    /// <summary>
+    /// Map STS2's MapPointType enum to frontend node types.
+    /// Frontend expects: monster, elite, boss, rest, shop, event, chest
+    /// </summary>
+    public static string MapNodeType(string rawType)
+    {
+        return rawType switch
+        {
+            "monster" => "monster",
+            "elite" => "elite",
+            "boss" => "boss",
+            "restsite" or "rest" => "rest",
+            "shop" => "shop",
+            "treasure" or "chest" => "chest",
+            "event" => "event",
+            "ancient" => "elite",
+            "unknown" or "unassigned" => "monster",
+            _ => "monster",
+        };
+    }
+
     public static List<MapNode> ExtractMapNodes(object mapData)
     {
         var nodes = new List<MapNode>();
@@ -426,69 +590,94 @@ public static class GameStateApi
 
         try
         {
-            // Use GetCollection for IEnumerable map points
-            var enumerable = GetCollection(mapData, "MapPoints", "_mapPoints")
-                ?? GetCollection(mapData, "Points", "_points");
-            if (enumerable == null) return nodes;
+            DumpObjectOnce(mapData, "ActMap");
 
-            foreach (var node in enumerable)
+            // From sts2.dll decompile:
+            //   StandardActMap has Grid (MapPoint[,]) — 2D array, NOT an IEnumerable
+            //   MapPoint has: coord (public field MapCoord), PointType (MapPointType enum),
+            //                 Children (HashSet<MapPoint>)
+            //   MapCoord has: col (int), row (int) — public fields
+
+            // Try Grid first (MapPoint[,] 2D array)
+            var grid = GetProp(mapData, "Grid") ?? GetField(mapData, "<Grid>k__BackingField");
+            if (grid is System.Array gridArray && gridArray.Rank == 2)
             {
-                var nt = Traverse.Create(node);
-
-                // MapPoint has Coord (MapCoord), Type (MapPointType)
-                var coord = nt.Property("Coord")?.GetValue<object>()
-                    ?? nt.Field("_coord")?.GetValue<object>();
-                int x = 0, y = 0;
-                if (coord != null)
+                var cols = gridArray.GetLength(0);
+                var rows = gridArray.GetLength(1);
+                for (int c = 0; c < cols; c++)
                 {
-                    var ct = Traverse.Create(coord);
-                    x = ct.Property("X")?.GetValue<int>() ?? ct.Field("X")?.GetValue<int>() ?? 0;
-                    y = ct.Property("Y")?.GetValue<int>() ?? ct.Field("Y")?.GetValue<int>() ?? 0;
-                }
-
-                // MapPointType enum: Unassigned, Unknown, Shop, Treasure, RestSite, Monster, Elite, Boss, Ancient
-                var nodeType = (nt.Property("Type")?.GetValue<object>()?.ToString()
-                    ?? nt.Field("_type")?.GetValue<object>()?.ToString()
-                    ?? "Monster").ToLowerInvariant();
-
-                // Extract connection indices from the node's children/connections
-                var connections = new List<int>();
-                var edgeCollection = GetCollection(node, "Children", "_children")
-                    ?? GetCollection(node, "Connections");
-                if (edgeCollection is System.Collections.IEnumerable edgeEnum)
-                {
-                    foreach (var edge in edgeEnum)
+                    for (int r = 0; r < rows; r++)
                     {
-                        // Connection might be another MapPoint or a MapCoord
-                        var et = Traverse.Create(edge);
-                        var edgeCoord = et.Property("Coord")?.GetValue<object>();
-                        if (edgeCoord != null)
+                        var point = gridArray.GetValue(c, r);
+                        if (point == null) continue;
+
+                        // MapPoint.coord is a public field (MapCoord struct)
+                        var coordObj = GetField(point, "coord") ?? GetProp(point, "coord");
+                        int x = 0, y = 0;
+                        if (coordObj != null)
                         {
-                            var ect = Traverse.Create(edgeCoord);
-                            var edgeY = ect.Property("Y")?.GetValue<int>() ?? ect.Field("Y")?.GetValue<int>() ?? -1;
-                            if (edgeY >= 0) connections.Add(edgeY);
+                            // MapCoord.col and .row are public fields
+                            x = (int?)GetField(coordObj, "col") ?? 0;
+                            y = (int?)GetField(coordObj, "row") ?? 0;
                         }
-                        else
+
+                        // MapPoint.PointType (not "Type") — MapPointType enum
+                        var rawType = (GetProp(point, "PointType"))?.ToString()?.ToLowerInvariant() ?? "monster";
+                        var nodeType = MapNodeType(rawType);
+
+                        // MapPoint.Children is HashSet<MapPoint> — extract child coords
+                        var connections = new List<int>();
+                        var children = GetCollection(point, "Children");
+                        if (children != null)
                         {
-                            // Direct index
-                            var idx = et.Property("Y")?.GetValue<int>() ?? et.Field("Y")?.GetValue<int>() ?? -1;
-                            if (idx >= 0) connections.Add(idx);
+                            foreach (var child in children)
+                            {
+                                if (child == null) continue;
+                                var childCoord = GetField(child, "coord");
+                                if (childCoord != null)
+                                {
+                                    var childCol = (int?)GetField(childCoord, "col") ?? -1;
+                                    if (childCol >= 0) connections.Add(childCol);
+                                }
+                            }
                         }
+
+                        nodes.Add(new MapNode
+                        {
+                            X = x,
+                            Y = y,
+                            Type = nodeType,
+                            Connections = connections,
+                            Visited = false, // Track via VisitedMapCoords on RunState instead
+                        });
                     }
                 }
-
-                var visited = nt.Property("IsVisited")?.GetValue<bool>()
-                    ?? nt.Field("_isVisited")?.GetValue<bool>()
-                    ?? false;
-
-                nodes.Add(new MapNode
+            }
+            else
+            {
+                // Fallback: try IEnumerable-based access
+                var enumerable = GetCollection(mapData, "MapPoints", "_mapPoints")
+                    ?? GetCollection(mapData, "Points", "_points");
+                if (enumerable != null)
                 {
-                    X = x,
-                    Y = y,
-                    Type = nodeType,
-                    Connections = connections,
-                    Visited = visited,
-                });
+                    foreach (var point in enumerable)
+                    {
+                        if (point == null) continue;
+                        var coordObj = GetField(point, "coord");
+                        int x = (int?)GetField(coordObj, "col") ?? 0;
+                        int y = (int?)GetField(coordObj, "row") ?? 0;
+                        var rawType = GetProp(point, "PointType")?.ToString()?.ToLowerInvariant() ?? "monster";
+
+                        nodes.Add(new MapNode
+                        {
+                            X = x,
+                            Y = y,
+                            Type = MapNodeType(rawType),
+                            Connections = new List<int>(),
+                            Visited = false,
+                        });
+                    }
+                }
             }
         }
         catch (System.Exception ex)
