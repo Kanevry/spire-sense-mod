@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Godot;
 using HarmonyLib;
 
@@ -17,10 +19,24 @@ namespace SpireSenseMod;
 /// </summary>
 public static class GameStateApi
 {
-    private static readonly HashSet<string> _dumpedTypes = new();
+    /// <summary>Thread-safe set of already-dumped type names (debug logging dedup).</summary>
+    private static readonly ConcurrentDictionary<string, byte> _dumpedTypes = new();
 
     /// <summary>Cached reference to the current CombatState for RefreshCombatState.</summary>
-    internal static object? CurrentCombatState;
+    /// <remarks>
+    /// Written by patch threads (HookSubscriptions), read by RefreshCombatState.
+    /// Volatile ensures cross-thread visibility without a full lock.
+    /// </remarks>
+    private static volatile object? _currentCombatState;
+
+    /// <summary>
+    /// Get or set the cached CombatState reference. Thread-safe via volatile.
+    /// </summary>
+    internal static object? CurrentCombatState
+    {
+        get => _currentCombatState;
+        set => _currentCombatState = value;
+    }
 
     // ── Reflection Helpers ──────────────────────────────────────────────
     // Harmony Traverse.Property().GetValue<object>() returns null for IReadOnlyList<T>
@@ -98,7 +114,7 @@ public static class GameStateApi
     public static void DumpObjectOnce(object obj, string label)
     {
         var typeName = obj.GetType().FullName ?? obj.GetType().Name;
-        if (!_dumpedTypes.Add(typeName)) return; // Already dumped this type
+        if (!_dumpedTypes.TryAdd(typeName, 0)) return; // Already dumped this type
 
         GD.Print($"[SpireSense DEBUG] === {label}: {typeName} ===");
         var type = obj.GetType();
@@ -138,7 +154,7 @@ public static class GameStateApi
 
     /// <summary>
     /// Extract card info from a game CardModel object.
-    /// CardModel properties: CardId, Name, CardType, Rarity, EnergyCost, Description, IsUpgraded
+    /// CardModel properties: CardId, Name, CardType, Rarity, EnergyCost, Description, IsUpgraded, GetDescriptionForUpgradePreview()
     /// </summary>
     public static CardInfo ExtractCardInfo(object gameCard)
     {
@@ -159,20 +175,37 @@ public static class GameStateApi
             // Title is a plain String
             var name = traverse.Property("Title")?.GetValue<string>() ?? "";
 
-            // EnergyCost is CardEnergyCost type — Canonical property is the base cost int
+            // EnergyCost is CardEnergyCost type — Canonical is the original cost, _base is the current (possibly upgraded) cost
             var energyCostObj = traverse.Property("EnergyCost")?.GetValue<object>();
             if (energyCostObj != null) DumpObjectOnce(energyCostObj, "CardEnergyCost");
             var cost = 0;
+            var costUpgraded = 0;
             if (energyCostObj != null)
             {
                 var ecTraverse = Traverse.Create(energyCostObj);
-                cost = ecTraverse.Property("Canonical")?.GetValue<int>()
-                    ?? ecTraverse.Field("_base")?.GetValue<int>()
-                    ?? 0;
+                cost = ecTraverse.Property("Canonical")?.GetValue<int>() ?? 0;
+                // _base holds the current cost (modified by UpgradeBy), falls back to Canonical
+                costUpgraded = ecTraverse.Field("_base")?.GetValue<int>() ?? cost;
             }
 
             // Description is LocString — has LocTable + LocEntryKey, resolve via Godot TranslationServer
             var desc = ResolveLocString(traverse.Property("Description")?.GetValue<object>());
+
+            // Upgraded description via GetDescriptionForUpgradePreview() — returns formatted text with BBCode
+            var descUpgraded = "";
+            try
+            {
+                var upgradePreviewMethod = gameCard.GetType().GetMethod("GetDescriptionForUpgradePreview");
+                if (upgradePreviewMethod != null)
+                {
+                    var rawUpgraded = upgradePreviewMethod.Invoke(gameCard, null)?.ToString() ?? "";
+                    // Strip BBCode tags (e.g., [green]8[/green]) for clean text
+                    descUpgraded = System.Text.RegularExpressions.Regex.Replace(rawUpgraded, @"\[/?[^\]]+\]", "");
+                    // Strip image tags (e.g., [img]res://...png[/img]) that remain after BBCode strip
+                    descUpgraded = System.Text.RegularExpressions.Regex.Replace(descUpgraded, @"\[img\][^\[]*\[/img\]", "").Trim();
+                }
+            }
+            catch { /* Upgraded description not available — keep empty */ }
 
             // Character from Pool (e.g., "CARD_POOL.IRONCLAD_CARD_POOL (44127137)" → "ironclad")
             var poolStr = traverse.Property("Pool")?.GetValue<object>()?.ToString() ?? "";
@@ -184,6 +217,38 @@ public static class GameStateApi
             else if (poolStr.Contains("NECROBINDER")) character = "necrobinder";
             else if (poolStr.Contains("DEPRIVED")) character = "deprived";
 
+            // Tags: CardModel.Tags returns IEnumerable<CardTag>, Keywords returns IReadOnlySet<CardKeyword>
+            var tags = new List<string>();
+            try
+            {
+                var tagsEnum = traverse.Property("Tags")?.GetValue<System.Collections.IEnumerable>();
+                if (tagsEnum != null)
+                {
+                    foreach (var tag in tagsEnum)
+                    {
+                        var tagStr = tag?.ToString();
+                        if (!string.IsNullOrEmpty(tagStr) && tagStr != "None")
+                            tags.Add(tagStr.ToLowerInvariant());
+                    }
+                }
+            }
+            catch { /* Tags not available on this card */ }
+
+            try
+            {
+                var keywordsEnum = traverse.Property("Keywords")?.GetValue<System.Collections.IEnumerable>();
+                if (keywordsEnum != null)
+                {
+                    foreach (var kw in keywordsEnum)
+                    {
+                        var kwStr = kw?.ToString();
+                        if (!string.IsNullOrEmpty(kwStr) && kwStr != "None")
+                            tags.Add(kwStr.ToLowerInvariant());
+                    }
+                }
+            }
+            catch { /* Keywords not available on this card */ }
+
             return new CardInfo
             {
                 Id = cardId,
@@ -192,10 +257,11 @@ public static class GameStateApi
                 Type = (traverse.Property("Type")?.GetValue<object>()?.ToString() ?? "Attack").ToLowerInvariant(),
                 Rarity = (traverse.Property("Rarity")?.GetValue<object>()?.ToString() ?? "Common").ToLowerInvariant(),
                 Cost = cost,
-                CostUpgraded = cost, // TODO: extract upgraded cost from CardEnergyCost
+                CostUpgraded = costUpgraded,
                 Description = desc,
+                DescriptionUpgraded = descUpgraded,
                 Upgraded = traverse.Property("IsUpgraded")?.GetValue<bool>() ?? false,
-                Tags = new List<string>(),
+                Tags = tags,
             };
         }
         catch (System.Exception ex)
@@ -698,7 +764,7 @@ public static class GameStateApi
 
         // Also dump base type (Creature) properties for HP/Block discovery
         var baseType = gamePlayer.GetType().BaseType;
-        if (baseType != null && _dumpedTypes.Add("BASE:" + baseType.FullName))
+        if (baseType != null && _dumpedTypes.TryAdd("BASE:" + baseType.FullName, 0))
         {
             GD.Print($"[SpireSense DEBUG] === Player BaseType: {baseType.FullName} ===");
             foreach (var prop in baseType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))

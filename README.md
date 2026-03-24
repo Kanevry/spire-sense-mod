@@ -11,7 +11,10 @@ Plugin.Init()
   |
   +-- GameStateTracker  (thread-safe central state, lock + serialized snapshots)
   |     |
-  |     +-- Harmony Patches (8 patch classes hook into STS2 internals)
+  |     +-- STS2 Hooks (preferred — OnBeforeCombatStart, OnAfterCombatEnd,
+  |     |     OnAfterPlayerTurnStart, OnAfterMapGenerated, OnAfterCardPlayed)
+  |     |
+  |     +-- Harmony Patches (fallback — 8 patch classes for non-hook events)
   |     |     CardRewardPatch, CombatPatch, DeckPatch, MapPatch,
   |     |     ShopPatch, EventPatch, RestPatch, PotionPatch
   |     |
@@ -25,13 +28,34 @@ Plugin.Unload()
   -- stops servers, unpatches Harmony, releases resources
 ```
 
-The mod runs on the Godot 4.5 + C# / .NET 9 engine that powers STS2. Harmony 2.4.2 (built into STS2) patches game methods to capture state changes without modifying gameplay.
+The mod runs on the Godot 4.5 + C# / .NET 9 engine that powers STS2. Combat events use the official STS2 Hook system (`MegaCrit.Sts2.Core.Hooks.Hook`) via `[HarmonyPostfix]` subscriptions for stability. Harmony 2.4.2 patches are used as a fallback for events without Hook support.
+
+### Thread Safety
+
+`GameStateTracker` serializes all state mutations under a single `lock`. Snapshot serialization happens inside the lock to guarantee consistency. WebSocket broadcasts and HTTP responses always read from a pre-serialized JSON snapshot, never from live mutable state.
 
 ## Supported Characters
 
 `ironclad` | `silent` | `defect` | `regent` | `necrobinder` | `deprived`
 
 Unrecognized character IDs are normalized to `"unknown"` by `CharacterValidator`.
+
+## Data Extraction Status
+
+All data is extracted read-only from game objects at runtime.
+
+| Category | Fields | Notes |
+|----------|--------|-------|
+| **Cards** | id, name, character, type, rarity, cost, costUpgraded, description, descriptionUpgraded, upgraded, tags | Deck, hand, draw/discard/exhaust piles, card rewards, shop |
+| **Relics** | id, name, rarity, description, character, tags | Player collection + shop relics |
+| **Monsters** | id, name, hp, maxHp, block, intent, intentDamage, powers | All enemies in current combat |
+| **Player** | hp, maxHp, block, energy, maxEnergy, gold, powers, potions | Updated each turn |
+| **Potions** | id, name, description, canUse | Inventory + acquisition/usage events |
+| **Combat** | turn, hand, drawPile, discardPile, exhaustPile | Full pile contents with card details |
+| **Map** | nodes (x, y, type, connections, visited), currentFloor | Generated map + navigation state |
+| **Events** | name, description, options | Event encounters + player choices |
+| **Shop** | shopCards, shopRelics | Cards and relics available for purchase |
+| **Run** | character, ascension, seed, act, floor, screen | Run metadata + navigation |
 
 ## HTTP API
 
@@ -303,7 +327,7 @@ The `screen` field in the game state uses these constants:
    ```
    When `STS2GamePath` is set, the DLL and manifest are automatically copied to the mods folder.
 
-4. Run the tests (no Godot/game dependency required):
+4. Run the tests (155 tests, no Godot/game dependency required):
    ```bash
    dotnet test SpireSenseMod.Tests/SpireSenseMod.Tests.csproj --configuration Release
    ```
@@ -372,6 +396,20 @@ GitHub Actions runs on every push and PR to `main`:
 ### Decompilation Notes
 
 STS2 uses Godot 4.5 + C# / .NET 9. Game classes live in `sts2.dll` under the `MegaCrit.Sts2.Core` namespace. Harmony patches target specific methods using `[HarmonyPatch("Namespace.Class", "Method")]` with `Traverse` for runtime reflection. Since STS2 is in Early Access, internal class names and structures may change with game updates.
+
+## Recent Changes
+
+### Session 18
+- **CardRewardPatch fix** -- Card rewards now correctly captured on reward screen
+- **PileType bug fix** -- Draw/discard/exhaust piles properly categorized
+- **Enhanced card extraction** -- `costUpgraded`, `tags`, and `descriptionUpgraded` fields now populated
+- **Thread safety improvements** -- Tighter lock scoping in GameStateTracker
+
+### Session 17
+- **Complete data extraction overhaul** -- All game entities (cards, relics, monsters, potions, events, shop, map) fully extracted with correct field mappings
+- **State broadcast fix** -- WebSocket `state_update` events now fire reliably on every state mutation
+- **Hook system migration** -- Combat events migrated from raw Harmony patches to STS2 Hook system (`OnBeforeCombatStart`, `OnAfterCombatEnd`, `OnAfterPlayerTurnStart`, `OnAfterMapGenerated`, `OnAfterCardPlayed`)
+- **155 tests** across serialization, state tracking, character validation, and model completeness
 
 ## Early Access Notice
 

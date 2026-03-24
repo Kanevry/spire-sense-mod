@@ -44,11 +44,22 @@ public static class DeckPatch
                 if (__args.Length == 0 || __args[0] == null) return;
                 var card = __args[0];
 
-                // Second arg is PileType — only track additions to the Deck pile
-                if (__args.Length > 1)
+                // Second arg is PileType enum or CardPile object — only track additions to the Deck pile
+                // PileType enum: MegaCrit.Sts2.Core.Entities.Cards.PileType { None, Draw, Hand, Discard, Exhaust, Play, Deck }
+                if (__args.Length > 1 && __args[1] != null)
                 {
-                    var pileType = __args[1]?.ToString();
-                    if (pileType != null && pileType != "Deck") return;
+                    var arg = __args[1];
+                    if (arg.GetType().IsEnum)
+                    {
+                        // Direct PileType enum — ToString() returns member name e.g. "Deck"
+                        if (arg.ToString() != "Deck") return;
+                    }
+                    else
+                    {
+                        // CardPile object — check its Type property (which is a PileType enum)
+                        var pileType = GameStateApi.GetProp(arg, "Type")?.ToString();
+                        if (pileType != null && pileType != "Deck") return;
+                    }
                 }
 
                 var cardInfo = GameStateApi.ExtractCardInfo(card);
@@ -255,8 +266,10 @@ public static class DeckPatch
                                 {
                                     foreach (var pile in piles)
                                     {
-                                        var pileType = GameStateApi.GetProp(pile, "Type")?.ToString();
-                                        if (pileType == "Deck")
+                                        // CardPile.Type is PileType enum — ToString() returns member name
+                                        // Use Contains() for resilience against qualified enum names
+                                        var pileTypeStr = GameStateApi.GetProp(pile, "Type")?.ToString() ?? "";
+                                        if (pileTypeStr == "Deck" || pileTypeStr.EndsWith(".Deck"))
                                         {
                                             var cards = GameStateApi.GetCollection(pile, "Cards")
                                                 ?? pile as System.Collections.IEnumerable;

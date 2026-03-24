@@ -10,6 +10,7 @@
 - **Entry Point:** `[ModInitializer("Init")]` on `Plugin.Init()`, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
 - **Status:** Production — 20 Harmony patch targets verified via sts2.dll decompilation (8 patch files, observation-only)
+- **Test count:** 155 tests across xUnit test project
 - **Debug Mode:** `Plugin.DebugMode = true` enables TypeDiscovery (runtime assembly scanning)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
 
@@ -18,13 +19,13 @@
 ```bash
 dotnet build                    # Build DLL (auto-deploys to mods folder if STS2GamePath set)
 dotnet build -c Release         # Release build
-dotnet test SpireSenseMod.Tests # xUnit tests (106 tests, no Godot dependency)
+dotnet test SpireSenseMod.Tests # xUnit tests (155 tests, no Godot dependency)
 ```
 
 ## CI Pipeline
 
 GitHub Actions (`.github/workflows/build.yml`):
-- **test job** (ubuntu, no Godot): xUnit tests via source-file linking — all 106 tests must pass
+- **test job** (ubuntu, no Godot): xUnit tests via source-file linking — all 155 tests must pass
 - **build job** (ubuntu): `dotnet restore` + `dotnet format` + `dotnet build -c Release /p:TreatWarningsAsErrors=true`
 - **release job** (on `v*` tags): Creates `SpireSense-v{version}.zip` with SHA256 checksums
 
@@ -67,7 +68,7 @@ SpireSenseMod/
 
 ## Thread-Safety Model
 
-- **GameStateTracker:** Central state protected by `lock(_lock)`. All mutations serialize under the lock and produce an immutable JSON snapshot string. Readers get the pre-serialized snapshot — no deserialization race conditions.
+- **GameStateTracker:** Central state protected by `lock(_lock)`. All mutations serialize under the lock and produce an immutable JSON snapshot string. Readers get the pre-serialized snapshot — no deserialization race conditions. `CurrentCombatState` is `volatile` for lock-free reads.
 - **Event Buffer:** Separate `_eventLock` protects the ring buffer (max 100 events). Events are appended under lock, reads return snapshot lists.
 - **WebSocket Broadcast:** Events are queued in a `ConcurrentQueue<GameEvent>` and flushed by a 50ms `Timer` (or immediately when the queue reaches 10 messages). An `Interlocked` guard prevents concurrent flushes.
 - **Patch Thread:** Harmony postfix patches run on the game's main thread. They call `GameStateTracker.UpdateState()` which acquires the lock, mutates, serializes, and emits events.
@@ -138,6 +139,47 @@ SpireSense Web App (spiresense.app/overlay)
   -> Engine layer scores cards, detects synergies, calculates draw probability
   -> AI layer (Claude) provides coaching based on game state + RAG context
 ```
+
+## Session 18 Fixes
+
+### CardRewardPatch
+- `ShowScreen` is a **static** method — Harmony postfix uses `__result` and `__0` parameters (no `__instance`)
+- Correct property for card data is `Card` (not `CardModel`) on reward screen items
+
+### DeckPatch PileType Resilience
+- PileType matching uses `.ToString() == "Deck" || .EndsWith(".Deck")` for resilience against namespace changes
+
+### Data Extraction Improvements
+- **costUpgraded:** `CardEnergyCost.Canonical` = base/original cost, `_base` = current/upgraded cost
+- **Tags:** Extracted from `CardModel.Tags` (CardTag flags) + `Keywords` (CardKeyword flags)
+- **DescriptionUpgraded:** Retrieved via `CardModel.GetDescriptionForUpgradePreview()`
+
+### Thread Safety Improvements
+- `CurrentCombatState` field is now `volatile` for lock-free reads
+- `_dumpedTypes` in TypeDiscovery uses `ConcurrentDictionary` instead of `Dictionary`
+
+## Known Decompiled Types
+
+Reference for STS2 internal types (verified via `ilspycmd` against sts2.dll):
+
+### PileType Enum
+`None`, `Draw`, `Hand`, `Discard`, `Exhaust`, `Play`, `Deck`
+
+### CardTag Enum
+`None`, `Strike`, `Defend`, `Minion`, `OstyAttack`, `Shiv`
+
+### CardKeyword Enum
+`None`, `Exhaust`, `Ethereal`, `Innate`, `Unplayable`, `Retain`, `Sly`, `Eternal`
+
+### CardEnergyCost
+- `Canonical` — original/base cost (unmodified)
+- `_base` — current cost (reflects upgrades)
+- `UpgradeBy(int)` — modifies `_base` by delta
+
+### CardModel
+- `GetDescriptionForUpgradePreview()` — returns upgraded card description text
+- `Tags` — `CardTag` flags enum
+- `Keywords` — `CardKeyword` flags enum
 
 ## Key Decisions
 
