@@ -90,7 +90,9 @@ public static class HookSubscriptions
                     // Get Gold/Energy from Player object (third Hook param)
                     if (playerObj != null)
                     {
-                        state.Combat.Player.Gold = (int?)GameStateApi.GetProp(playerObj, "Gold") ?? state.Combat.Player.Gold;
+                        var gold = (int?)GameStateApi.GetProp(playerObj, "Gold") ?? state.Combat.Player.Gold;
+                        state.Combat.Player.Gold = gold;
+                        state.Gold = gold;
                         state.Combat.Player.MaxEnergy = (int?)GameStateApi.GetProp(playerObj, "MaxEnergy") ?? 3;
                         state.Combat.Player.Energy = state.Combat.Player.MaxEnergy; // Reset each turn
                     }
@@ -104,7 +106,9 @@ public static class HookSubscriptions
                         {
                             foreach (var player in rsPlayers)
                             {
-                                state.Combat.Player.Gold = (int?)GameStateApi.GetProp(player, "Gold") ?? 0;
+                                var gold = (int?)GameStateApi.GetProp(player, "Gold") ?? 0;
+                                state.Combat.Player.Gold = gold;
+                                state.Gold = gold;
                                 state.Combat.Player.Energy = state.Combat.Player.MaxEnergy;
                                 break;
                             }
@@ -207,8 +211,12 @@ public static class HookSubscriptions
                 if (combatStateObj != null)
                     GameStateApi.ExtractCardPilesFromCombat(combatStateObj, combatState);
 
-                Plugin.StateTracker?.SetCombatState(combatState);
-                Plugin.StateTracker?.SetScreen(ScreenType.Combat);
+                Plugin.StateTracker?.UpdateState(state =>
+                {
+                    state.Combat = combatState;
+                    state.Screen = ScreenType.Combat;
+                    state.Gold = combatState.Player.Gold;
+                });
                 Plugin.StateTracker?.EmitEvent(new GameEvent
                 {
                     Type = "combat_start",

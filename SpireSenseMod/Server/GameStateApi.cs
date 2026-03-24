@@ -916,7 +916,9 @@ public static class GameStateApi
                 foreach (var player in players)
                 {
                     var pt = Traverse.Create(player);
-                    state.Combat.Player.Gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                    var gold = pt.Property("Gold")?.GetValue<int>() ?? 0;
+                    state.Combat.Player.Gold = gold;
+                    state.Gold = gold;
                     state.Combat.Player.MaxEnergy = pt.Property("MaxEnergy")?.GetValue<int>() ?? 3;
 
                     // Card piles — extracted separately from CombatState below

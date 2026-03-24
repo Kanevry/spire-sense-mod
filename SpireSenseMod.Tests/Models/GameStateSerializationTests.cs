@@ -25,6 +25,7 @@ public class GameStateSerializationTests
         Assert.Contains("\"act\":", json);
         Assert.Contains("\"ascension\":", json);
         Assert.Contains("\"seed\":", json);
+        Assert.Contains("\"gold\":", json);
         Assert.Contains("\"deck\":", json);
         Assert.Contains("\"relics\":", json);
         // Nullable fields should be absent when null
@@ -47,6 +48,7 @@ public class GameStateSerializationTests
         Assert.Equal(0, root.GetProperty("floor").GetInt32());
         Assert.Equal(0, root.GetProperty("ascension").GetInt32());
         Assert.Equal("", root.GetProperty("seed").GetString());
+        Assert.Equal(0, root.GetProperty("gold").GetInt32());
         Assert.Equal(JsonValueKind.Array, root.GetProperty("deck").ValueKind);
         Assert.Equal(JsonValueKind.Array, root.GetProperty("relics").ValueKind);
         Assert.Equal(JsonValueKind.Array, root.GetProperty("map").ValueKind);
@@ -63,6 +65,7 @@ public class GameStateSerializationTests
         Assert.Equal(0, state.Floor);
         Assert.Equal(0, state.Ascension);
         Assert.Equal("", state.Seed);
+        Assert.Equal(0, state.Gold);
         Assert.Empty(state.Deck);
         Assert.Empty(state.Relics);
         Assert.Empty(state.Map);
@@ -85,6 +88,7 @@ public class GameStateSerializationTests
             Floor = 15,
             Ascension = 5,
             Seed = "ABC123",
+            Gold = 120,
             Deck = new()
             {
                 new CardInfo { Id = "strike", Name = "Strike", Type = "attack", Cost = 1 },
@@ -136,6 +140,7 @@ public class GameStateSerializationTests
         Assert.Equal(state.Floor, deserialized.Floor);
         Assert.Equal(state.Ascension, deserialized.Ascension);
         Assert.Equal(state.Seed, deserialized.Seed);
+        Assert.Equal(state.Gold, deserialized.Gold);
 
         // Deck
         Assert.Equal(state.Deck.Count, deserialized.Deck.Count);

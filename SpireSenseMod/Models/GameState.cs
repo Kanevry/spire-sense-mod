@@ -27,6 +27,9 @@ public class GameState
     [JsonPropertyName("seed")]
     public string Seed { get; set; } = "";
 
+    [JsonPropertyName("gold")]
+    public int Gold { get; set; } = 0;
+
     [JsonPropertyName("deck")]
     public List<CardInfo> Deck { get; set; } = new();
 

@@ -64,6 +64,7 @@ public class ModelCompletenessTests
             Floor = 5,
             Ascension = 10,
             Seed = "ABC",
+            Gold = 200,
             Deck = new() { new CardInfo { Id = "strike" } },
             Relics = new() { new RelicInfo { Id = "relic" } },
             Combat = new CombatState(),
@@ -79,10 +80,10 @@ public class ModelCompletenessTests
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        // Verify all 15 fields are present with camelCase names
+        // Verify all 16 fields are present with camelCase names
         var expectedFields = new[]
         {
-            "screen", "character", "act", "floor", "ascension", "seed",
+            "screen", "character", "act", "floor", "ascension", "seed", "gold",
             "deck", "relics", "combat", "map", "cardRewards",
             "shopCards", "shopRelics", "eventOptions", "restOptions",
         };
