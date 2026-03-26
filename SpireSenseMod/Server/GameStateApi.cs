@@ -368,6 +368,46 @@ public static class GameStateApi
             else if (poolStr.Contains("NECROBINDER")) character = "necrobinder";
             else if (poolStr.Contains("DEPRIVED")) character = "deprived";
 
+            // Tags: try reflection first (same pattern as card tags), then fallback to description inference
+            var tags = new List<string>();
+            try
+            {
+                var rawTags = GetCollection(gameRelic, "Tags");
+                if (rawTags != null)
+                {
+                    foreach (var tag in rawTags)
+                    {
+                        var tagStr = tag?.ToString()?.ToLowerInvariant();
+                        if (!string.IsNullOrEmpty(tagStr))
+                            tags.Add(tagStr);
+                    }
+                }
+            }
+            catch (System.Exception)
+            {
+                // Tags property may not exist on relics — fall through to keyword inference
+            }
+
+            // Fallback: infer tags from relic description keywords
+            if (tags.Count == 0 && !string.IsNullOrEmpty(description))
+            {
+                var descLower = description.ToLowerInvariant();
+
+                if (descLower.Contains("strength")) tags.Add("strength");
+                if (descLower.Contains("dexterity")) tags.Add("dexterity");
+                if (descLower.Contains("block")) tags.Add("block");
+                if (descLower.Contains("draw") || descLower.Contains("card")) tags.Add("draw");
+                if (descLower.Contains("energy")) tags.Add("energy");
+                if (descLower.Contains("poison")) tags.Add("poison");
+                if (descLower.Contains("heal") || descLower.Contains("hp")) tags.Add("healing");
+                if (descLower.Contains("gold") || descLower.Contains("money")) tags.Add("economy");
+                if (descLower.Contains("damage")) tags.Add("attack");
+                if (descLower.Contains("orb") || descLower.Contains("focus")) tags.Add("orb");
+                if (descLower.Contains("exhaust")) tags.Add("exhaust");
+                if (descLower.Contains("retain")) tags.Add("retain");
+                if (descLower.Contains("upgrade")) tags.Add("upgrade");
+            }
+
             return new RelicInfo
             {
                 Id = relicId,
@@ -375,7 +415,7 @@ public static class GameStateApi
                 Character = character,
                 Rarity = rarity,
                 Description = description,
-                Tags = new List<string>(),
+                Tags = tags,
             };
         }
         catch (System.Exception ex)

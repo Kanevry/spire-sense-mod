@@ -282,6 +282,174 @@ public class DataExtractionTests
         Assert.Equal(card.Tags, deserialized.Tags);
     }
 
+    // ── RelicInfo: tag inference from description ───────────────────────
+
+    [Fact]
+    public void RelicInfo_Tags_DefaultsToEmptyList()
+    {
+        var relic = new RelicInfo();
+
+        Assert.NotNull(relic.Tags);
+        Assert.Empty(relic.Tags);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_StrengthKeyword_InfersTag()
+    {
+        // Simulates description-based tag inference for a strength relic
+        var relic = new RelicInfo
+        {
+            Id = "vajra",
+            Name = "Vajra",
+            Description = "At the start of each combat, gain 1 Strength.",
+            Tags = InferRelicTags("At the start of each combat, gain 1 Strength."),
+        };
+
+        Assert.Contains("strength", relic.Tags);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_MultipleKeywords_GenerateMultipleTags()
+    {
+        // Relic description containing multiple keywords should produce multiple tags
+        var description = "Gain 1 energy at the start of each turn. Draw 1 additional card each turn.";
+        var tags = InferRelicTags(description);
+
+        Assert.Contains("energy", tags);
+        Assert.Contains("draw", tags); // "card" keyword also maps to "draw"
+        Assert.True(tags.Count >= 2);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_HealingKeywords_InferTag()
+    {
+        // "heal" keyword
+        var tags1 = InferRelicTags("At the end of combat, heal 6 HP.");
+        Assert.Contains("healing", tags1);
+
+        // "hp" keyword also maps to healing
+        var tags2 = InferRelicTags("Gain 5 Max HP.");
+        Assert.Contains("healing", tags2);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_EconomyKeywords_InferTag()
+    {
+        // "gold" keyword
+        var tags1 = InferRelicTags("Gain 25 gold at the start of each combat.");
+        Assert.Contains("economy", tags1);
+
+        // "money" keyword also maps to economy
+        var tags2 = InferRelicTags("Enemies drop 25% more money.");
+        Assert.Contains("economy", tags2);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_EmptyDescription_GeneratesNoTags()
+    {
+        var tags = InferRelicTags("");
+        Assert.Empty(tags);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_NoMatchingKeywords_GeneratesNoTags()
+    {
+        var tags = InferRelicTags("Something entirely unrelated to any keyword.");
+        Assert.Empty(tags);
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_AreAlwaysLowercase()
+    {
+        // Even if the description has mixed case, tags should be lowercase
+        var tags = InferRelicTags("Gain 2 Strength and 1 Dexterity at the start of combat.");
+
+        foreach (var tag in tags)
+        {
+            Assert.Equal(tag, tag.ToLowerInvariant());
+        }
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_AllKeywordMappings_Covered()
+    {
+        // Verify each keyword → tag mapping works individually
+        var mappings = new (string keyword, string expectedTag)[]
+        {
+            ("strength", "strength"),
+            ("dexterity", "dexterity"),
+            ("block", "block"),
+            ("draw", "draw"),
+            ("card", "draw"),
+            ("energy", "energy"),
+            ("poison", "poison"),
+            ("heal", "healing"),
+            ("hp", "healing"),
+            ("gold", "economy"),
+            ("money", "economy"),
+            ("damage", "attack"),
+            ("orb", "orb"),
+            ("focus", "orb"),
+            ("exhaust", "exhaust"),
+            ("retain", "retain"),
+            ("upgrade", "upgrade"),
+        };
+
+        foreach (var (keyword, expectedTag) in mappings)
+        {
+            var tags = InferRelicTags($"This relic does something with {keyword}.");
+            Assert.Contains(expectedTag, tags);
+        }
+    }
+
+    [Fact]
+    public void RelicInfo_Tags_SerializeAsJsonArray()
+    {
+        var relic = new RelicInfo
+        {
+            Id = "burning_blood",
+            Name = "Burning Blood",
+            Description = "At the end of combat, heal 6 HP.",
+            Tags = new() { "healing" },
+        };
+
+        var json = JsonSerializer.Serialize(relic, JsonOptions);
+        using var doc = JsonDocument.Parse(json);
+        var tagsElement = doc.RootElement.GetProperty("tags");
+
+        Assert.Equal(JsonValueKind.Array, tagsElement.ValueKind);
+        Assert.Single(tagsElement.EnumerateArray());
+        Assert.Equal("healing", tagsElement[0].GetString());
+    }
+
+    /// <summary>
+    /// Mirrors the description-based tag inference logic from GameStateApi.ExtractRelicInfo.
+    /// Used by tests to validate the keyword → tag mapping without Godot/Harmony runtime.
+    /// </summary>
+    private static List<string> InferRelicTags(string description)
+    {
+        var tags = new List<string>();
+        if (string.IsNullOrEmpty(description)) return tags;
+
+        var descLower = description.ToLowerInvariant();
+
+        if (descLower.Contains("strength")) tags.Add("strength");
+        if (descLower.Contains("dexterity")) tags.Add("dexterity");
+        if (descLower.Contains("block")) tags.Add("block");
+        if (descLower.Contains("draw") || descLower.Contains("card")) tags.Add("draw");
+        if (descLower.Contains("energy")) tags.Add("energy");
+        if (descLower.Contains("poison")) tags.Add("poison");
+        if (descLower.Contains("heal") || descLower.Contains("hp")) tags.Add("healing");
+        if (descLower.Contains("gold") || descLower.Contains("money")) tags.Add("economy");
+        if (descLower.Contains("damage")) tags.Add("attack");
+        if (descLower.Contains("orb") || descLower.Contains("focus")) tags.Add("orb");
+        if (descLower.Contains("exhaust")) tags.Add("exhaust");
+        if (descLower.Contains("retain")) tags.Add("retain");
+        if (descLower.Contains("upgrade")) tags.Add("upgrade");
+
+        return tags;
+    }
+
     // ── Full CardInfo contract: all new fields together ───────────────
 
     [Fact]
