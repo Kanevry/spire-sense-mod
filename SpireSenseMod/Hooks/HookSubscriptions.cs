@@ -189,7 +189,7 @@ public static class HookSubscriptions
                     }
                 }
 
-                // Extract Gold/MaxEnergy from RunState.Players
+                // Extract Gold/MaxEnergy/Orbs from RunState.Players
                 if (runStateObj != null)
                 {
                     var rsPlayers = GameStateApi.GetCollection(runStateObj, "Players")
@@ -201,6 +201,13 @@ public static class HookSubscriptions
                             combatState.Player.Gold = (int?)GameStateApi.GetProp(player, "Gold") ?? 0;
                             combatState.Player.MaxEnergy = (int?)GameStateApi.GetProp(player, "MaxEnergy") ?? 3;
                             combatState.Player.Energy = combatState.Player.MaxEnergy;
+
+                            // Extract orb slots (Defect) from Player.PlayerCombatState.OrbQueue
+                            combatState.Player.Orbs = GameStateApi.ExtractOrbs(player);
+                            combatState.Player.MaxOrbs = GameStateApi.ExtractMaxOrbs(player);
+                            combatState.Player.Focus = combatState.Player.Powers
+                                .FirstOrDefault(p => p.Id.Equals("Focus", System.StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+
                             break;
                         }
                     }
@@ -923,6 +930,82 @@ public static class HookSubscriptions
             catch (System.Exception ex)
             {
                 GD.PrintErr($"[SpireSense] BeforeCardRemoved error: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Orb channeled — refresh combat state to update orb slots.
+    /// TARGET: Hook.AfterOrbChanneled(CombatState, OrbModel)
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterOrbChanneled
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterOrbChanneled" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Cache CombatState if available
+                var combatStateObj = __args?.Length > 0 ? __args[0] : null;
+                if (combatStateObj != null)
+                    GameStateApi.CurrentCombatState = combatStateObj;
+
+                GameStateApi.RefreshCombatState();
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterOrbChanneled error: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix: Orb evoked — refresh combat state to update orb slots.
+    /// TARGET: Hook.AfterOrbEvoked(CombatState, OrbModel)
+    /// </summary>
+    [HarmonyPatch]
+    [HarmonyPriority(Priority.HigherThanNormal)]
+    public static class OnAfterOrbEvoked
+    {
+        [HarmonyTargetMethod]
+        static MethodBase? TargetMethod()
+        {
+            var type = AccessTools.TypeByName("MegaCrit.Sts2.Core.Hooks.Hook");
+            if (type == null) return null;
+            return type.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Where(m => m.Name == "AfterOrbEvoked" && !m.IsGenericMethod)
+                .OrderByDescending(m => m.GetParameters().Length)
+                .FirstOrDefault();
+        }
+
+        [HarmonyPostfix]
+        static void Postfix(object[] __args)
+        {
+            try
+            {
+                // Cache CombatState if available
+                var combatStateObj = __args?.Length > 0 ? __args[0] : null;
+                if (combatStateObj != null)
+                    GameStateApi.CurrentCombatState = combatStateObj;
+
+                GameStateApi.RefreshCombatState();
+            }
+            catch (System.Exception ex)
+            {
+                GD.PrintErr($"[SpireSense] AfterOrbEvoked error: {ex.Message}\n{ex.StackTrace}");
             }
         }
     }

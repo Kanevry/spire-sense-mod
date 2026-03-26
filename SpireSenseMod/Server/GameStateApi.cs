@@ -564,6 +564,71 @@ public static class GameStateApi
         return powers;
     }
 
+    // ── Orb Extraction ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Extracts orb slot data from the player's combat state.
+    /// Uses decompiled access path: Player.PlayerCombatState.OrbQueue.Orbs → IReadOnlyList&lt;OrbModel&gt;
+    /// Per-orb: orb.Id.Entry (string), orb.PassiveVal (decimal), orb.EvokeVal (decimal)
+    /// </summary>
+    public static List<OrbInfo> ExtractOrbs(object player)
+    {
+        var orbs = new List<OrbInfo>();
+        try
+        {
+            // Access PlayerCombatState
+            var combatState = GetProp(player, "PlayerCombatState");
+            if (combatState == null) return orbs;
+
+            // Access OrbQueue
+            var orbQueue = GetProp(combatState, "OrbQueue");
+            if (orbQueue == null) return orbs;
+
+            // Access Orbs list (IReadOnlyList<OrbModel>)
+            var orbList = GetCollection(orbQueue, "Orbs");
+            if (orbList == null) return orbs;
+
+            foreach (var orb in orbList)
+            {
+                if (orb == null) continue;
+                DumpObjectOnce(orb, "OrbModel");
+
+                var id = GetProp(orb, "Id");
+                var entry = GetProp(id, "Entry")?.ToString() ?? "";
+                var passiveVal = GetProp(orb, "PassiveVal");
+                var evokeVal = GetProp(orb, "EvokeVal");
+
+                orbs.Add(new OrbInfo
+                {
+                    Id = entry.ToLowerInvariant(),
+                    Type = entry.ToLowerInvariant(),
+                    PassiveAmount = passiveVal != null ? (int)System.Math.Round(System.Convert.ToDecimal(passiveVal)) : 0,
+                    EvokeAmount = evokeVal != null ? (int)System.Math.Round(System.Convert.ToDecimal(evokeVal)) : 0,
+                });
+            }
+        }
+        catch (System.Exception ex)
+        {
+            GD.PrintErr($"[SpireSense] Failed to extract orbs: {ex.Message}");
+        }
+        return orbs;
+    }
+
+    /// <summary>
+    /// Extract orb slot capacity from Player.PlayerCombatState.OrbQueue.Capacity.
+    /// Returns 0 for non-Defect characters (no orb queue).
+    /// </summary>
+    public static int ExtractMaxOrbs(object player)
+    {
+        try
+        {
+            var combatState = GetProp(player, "PlayerCombatState");
+            var orbQueue = GetProp(combatState, "OrbQueue");
+            return orbQueue != null && GetProp(orbQueue, "Capacity") is int cap ? cap : 0;
+        }
+        catch { return 0; }
+    }
+
     /// <summary>Extract potions from an IEnumerable (obtained via GetCollection).</summary>
     public static List<PotionInfo> ExtractPotionsFromEnum(System.Collections.IEnumerable? source)
     {
@@ -863,6 +928,11 @@ public static class GameStateApi
             }
         }
 
+        var powers = ExtractPowersFromEnum(GetCollection(creatureObj, "Powers", "_powers"));
+        var orbs = ExtractOrbs(gamePlayer);
+        var maxOrbs = ExtractMaxOrbs(gamePlayer);
+        var focus = powers.FirstOrDefault(p => p.Id.Equals("Focus", System.StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+
         return new PlayerState
         {
             Hp = hp,
@@ -873,8 +943,11 @@ public static class GameStateApi
                 ?? 0,
             MaxEnergy = maxEnergy,
             Gold = gold,
-            Powers = ExtractPowersFromEnum(GetCollection(creatureObj, "Powers", "_powers")),
+            Powers = powers,
             Potions = ExtractPotionsFromEnum(GetCollection(gamePlayer, "PotionSlots", "_potionSlots")),
+            Orbs = orbs,
+            MaxOrbs = maxOrbs,
+            Focus = focus,
         };
     }
 
@@ -963,7 +1036,7 @@ public static class GameStateApi
 
                     // Card piles — extracted separately from CombatState below
 
-                    // Get Creature for HP/Block
+                    // Get Creature for HP/Block + Powers
                     var creature = GetProp(player, "Creature");
                     if (creature != null)
                     {
@@ -971,7 +1044,15 @@ public static class GameStateApi
                         state.Combat.Player.Hp = ct.Property("CurrentHp")?.GetValue<int>() ?? state.Combat.Player.Hp;
                         state.Combat.Player.MaxHp = ct.Property("MaxHp")?.GetValue<int>() ?? state.Combat.Player.MaxHp;
                         state.Combat.Player.Block = ct.Property("Block")?.GetValue<int>() ?? state.Combat.Player.Block;
+                        state.Combat.Player.Powers = ExtractPowersFromEnum(GetCollection(creature, "Powers", "_powers"));
                     }
+
+                    // Extract orbs from Player.PlayerCombatState.OrbQueue (Defect)
+                    state.Combat.Player.Orbs = ExtractOrbs(player);
+                    state.Combat.Player.MaxOrbs = ExtractMaxOrbs(player);
+                    state.Combat.Player.Focus = state.Combat.Player.Powers
+                        .FirstOrDefault(p => p.Id.Equals("Focus", System.StringComparison.OrdinalIgnoreCase))?.Amount ?? 0;
+
                     break;
                 }
             }

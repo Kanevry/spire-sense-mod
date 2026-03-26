@@ -779,3 +779,246 @@ ShouldStopCombatFromEnding(CombatState) -> bool
 ShouldTakeExtraTurn(CombatState, Player) -> bool
 TryModifyCardRewardOptions(IRunState, Player, List<CardCreationResult>, CardCreationOptions, out List<AbstractModel>) -> bool
 ```
+
+---
+
+### 15. Orbs (Defect)
+
+Decompiled 2026-03-26 for Issue #163 (orb slot data for web app).
+
+#### OrbModel (abstract base)
+
+**`MegaCrit.Sts2.Core.Models.OrbModel`** (extends `AbstractModel`)
+
+Key properties:
+```csharp
+public abstract decimal PassiveVal { get; }      // Passive trigger value (Focus-modified via ModifyOrbValue)
+public abstract decimal EvokeVal { get; }         // Evoke value (Focus-modified via ModifyOrbValue)
+public bool HasBeenRemovedFromState { get; }      // True after orb removed from queue
+public Player Owner { get; set; }                 // Owning player (set when channeled)
+public LocString Title { get; }                   // Localized name ("orbs", Id.Entry + ".title")
+public LocString Description { get; }             // Localized description
+public abstract Color DarkenedColor { get; }      // Tint color for remote players
+```
+
+Key methods:
+```csharp
+public OrbModel ToMutable(int initialAmount = 0)  // Clone for combat use
+public virtual Task Passive(PlayerChoiceContext, Creature? target)  // Passive trigger effect
+public virtual Task<IEnumerable<Creature>> Evoke(PlayerChoiceContext)  // Evoke effect
+public virtual Task BeforeTurnEndOrbTrigger(PlayerChoiceContext)       // Most orbs trigger here
+public virtual Task AfterTurnStartOrbTrigger(PlayerChoiceContext)      // Plasma triggers here
+protected decimal ModifyOrbValue(decimal result)   // Applies Focus via Hook.ModifyOrbValue
+```
+
+Valid orb types (from `_validOrbs`):
+- `LightningOrb`, `FrostOrb`, `DarkOrb`, `PlasmaOrb`, `GlassOrb`
+
+**Orb ID:** `Id.Entry` on the OrbModel gives the orb type name (e.g., "Lightning", "Frost", "Dark", "Plasma", "Glass").
+
+#### Concrete Orb Types
+
+**`MegaCrit.Sts2.Core.Models.Orbs.LightningOrb`**
+- PassiveVal: `ModifyOrbValue(3)` — deals damage to random enemy
+- EvokeVal: `ModifyOrbValue(8)` — deals damage to random enemy
+- Trigger: `BeforeTurnEndOrbTrigger` (end of turn)
+
+**`MegaCrit.Sts2.Core.Models.Orbs.FrostOrb`**
+- PassiveVal: `ModifyOrbValue(2)` — gains block for player
+- EvokeVal: `ModifyOrbValue(5)` — gains block for player
+- Trigger: `BeforeTurnEndOrbTrigger` (end of turn)
+
+**`MegaCrit.Sts2.Core.Models.Orbs.DarkOrb`**
+- PassiveVal: `ModifyOrbValue(6)` — increases EvokeVal (accumulates)
+- EvokeVal: starts at 6, increased by PassiveVal each turn — deals damage to lowest HP enemy
+- Has private `_evokeVal` field that accumulates
+- Trigger: `BeforeTurnEndOrbTrigger` (end of turn)
+
+**`MegaCrit.Sts2.Core.Models.Orbs.PlasmaOrb`**
+- PassiveVal: `1` (NOT Focus-modified) — gains 1 energy
+- EvokeVal: `2` (NOT Focus-modified) — gains 2 energy
+- Trigger: `AfterTurnStartOrbTrigger` (start of turn, different from others!)
+
+**`MegaCrit.Sts2.Core.Models.Orbs.GlassOrb`** (NEW in STS2)
+- PassiveVal: `ModifyOrbValue(_passiveVal)` — starts at 4, decreases by 1 each trigger
+- EvokeVal: `PassiveVal * 2` — deals damage to ALL hittable enemies (AOE)
+- Passive deals damage to ALL hittable enemies (AOE)
+- Has private `_passiveVal` field that decreases each trigger (min 0)
+- Trigger: `BeforeTurnEndOrbTrigger` (end of turn)
+
+#### OrbQueue
+
+**`MegaCrit.Sts2.Core.Entities.Orbs.OrbQueue`**
+
+Key properties:
+```csharp
+public IReadOnlyList<OrbModel> Orbs { get; }  // Current orbs in queue (ordered, first = front)
+public int Capacity { get; }                    // Current max orb slots
+public const int maxCapacity = 10;              // Hard cap
+```
+
+Key methods:
+```csharp
+public void AddCapacity(int capacity)
+public void RemoveCapacity(int capacity)  // Removes excess orbs from back
+public Task<bool> TryEnqueue(OrbModel orb)  // Adds to back of queue
+public bool Remove(OrbModel orb)
+public void Insert(int idx, OrbModel orb)
+public void Clear()
+```
+
+#### PlayerCombatState — Orb Access Path
+
+**`MegaCrit.Sts2.Core.Entities.Players.PlayerCombatState`**
+
+```csharp
+public OrbQueue OrbQueue { get; }  // Initialized in constructor, capacity from Player.BaseOrbSlotCount
+```
+
+**Access chain:** `Player.PlayerCombatState.OrbQueue.Orbs` -> `IReadOnlyList<OrbModel>`
+**Capacity:** `Player.PlayerCombatState.OrbQueue.Capacity` -> `int`
+
+#### Player — BaseOrbSlotCount
+
+**`MegaCrit.Sts2.Core.Entities.Players.Player`**
+
+```csharp
+public int BaseOrbSlotCount { get; set; }  // Set from CharacterModel.BaseOrbSlotCount at run start
+```
+
+Constructor: `new Player(..., orbSlotCount, ...)` — `BaseOrbSlotCount = orbSlotCount`
+CreateForNewRun: passes `character.BaseOrbSlotCount` to constructor
+
+#### CharacterModel — BaseOrbSlotCount
+
+**`MegaCrit.Sts2.Core.Models.CharacterModel`** (abstract)
+
+```csharp
+public virtual int BaseOrbSlotCount => 0;  // Default: no orbs
+```
+
+**`MegaCrit.Sts2.Core.Models.Characters.Defect`** (override)
+
+```csharp
+public override int BaseOrbSlotCount => 3;  // Defect starts with 3 orb slots
+```
+
+#### OrbCmd — Static Commands
+
+**`MegaCrit.Sts2.Core.Commands.OrbCmd`** (static)
+
+```csharp
+public static Task AddSlots(Player player, int amount)    // Adds orb slot capacity (capped at 10)
+public static void RemoveSlots(Player player, int amount)  // Removes orb slot capacity
+public static async Task Channel<T>(PlayerChoiceContext, Player) where T : OrbModel  // Channel typed orb
+public static async Task Channel(PlayerChoiceContext, OrbModel orb, Player)           // Channel orb instance
+public static async Task EvokeNext(PlayerChoiceContext, Player, bool dequeue = true)  // Evoke front orb
+public static async Task EvokeLast(PlayerChoiceContext, Player, bool dequeue = true)  // Evoke last orb
+public static Task Replace(OrbModel oldOrb, OrbModel newOrb, Player)                 // Replace in-place
+public static void IncreaseBaseOrbCount(Player player, int amount)                    // Permanent slot increase
+```
+
+Channel logic: if `BaseOrbSlotCount == 0 && Capacity == 0`, auto-adds 1 slot. If queue full, evokes front orb first.
+
+#### FocusPower — Orb Value Modification
+
+**`MegaCrit.Sts2.Core.Models.Powers.FocusPower`**
+
+```csharp
+public override PowerType Type => PowerType.Buff;
+public override PowerStackType StackType => PowerStackType.Counter;
+public override bool AllowNegative => true;  // Focus can go negative!
+
+public override decimal ModifyOrbValue(Player player, decimal value)
+{
+    if (base.Owner.Player != player) return value;  // Only affects own orbs
+    return Math.Max(value + (decimal)base.Amount, 0m);  // Orb value = base + Focus, min 0
+}
+```
+
+**Important:** PlasmaOrb does NOT call `ModifyOrbValue()` for its passive/evoke values — Focus does NOT affect Plasma energy generation. Focus only affects orbs that call `ModifyOrbValue()` (Lightning, Frost, Dark, Glass).
+
+#### Hook Signatures for Orbs
+
+From **`MegaCrit.Sts2.Core.Hooks.Hook`** (static):
+
+```csharp
+// After an orb is channeled into a slot
+static async Task AfterOrbChanneled(CombatState, PlayerChoiceContext, Player, OrbModel orb)
+
+// After an orb is evoked (removed and effect triggered)
+static async Task AfterOrbEvoked(PlayerChoiceContext, CombatState, OrbModel orb, IEnumerable<Creature> targets)
+
+// Modify how many times an orb's passive triggers per turn (default 1)
+static int ModifyOrbPassiveTriggerCount(CombatState, OrbModel orb, int triggerCount, out List<AbstractModel> modifyingModels)
+
+// After the passive trigger count was modified
+static async Task AfterModifyingOrbPassiveTriggerCount(CombatState, OrbModel orb, IEnumerable<AbstractModel> modifiers)
+
+// Modify orb passive/evoke values (Focus applies here)
+static decimal ModifyOrbValue(CombatState, Player, decimal amount)
+```
+
+#### AbstractModel Hook Methods for Orbs
+
+Overridable in card/relic/power models:
+
+```csharp
+virtual Task AfterOrbChanneled(PlayerChoiceContext, Player, OrbModel orb)
+virtual Task AfterOrbEvoked(PlayerChoiceContext, OrbModel orb, IEnumerable<Creature> targets)
+virtual Task AfterModifyingOrbPassiveTriggerCount(OrbModel orb)
+virtual int ModifyOrbPassiveTriggerCounts(OrbModel orb, int triggerCount)
+virtual decimal ModifyOrbValue(Player player, decimal value)
+```
+
+#### OrbEvokeType Enum
+
+**`MegaCrit.Sts2.Core.Entities.Cards.OrbEvokeType`**
+
+```csharp
+public enum OrbEvokeType
+{
+    None,   // No evoke highlight
+    Front,  // Highlight front orb (standard evoke)
+    All     // Highlight all orbs (e.g., Multi-Cast)
+}
+```
+
+#### OrbChanneledEntry (Combat History)
+
+**`MegaCrit.Sts2.Core.Combat.History.Entries.OrbChanneledEntry`**
+
+```csharp
+public OrbModel Orb { get; }
+public override string Description => Actor.Player.Character.Id.Entry + " channeled " + Orb.Id.Entry;
+```
+
+#### NOrb / NOrbManager (Godot Nodes — UI only)
+
+- **`MegaCrit.Sts2.Core.Nodes.Orbs.NOrb`** — individual orb visual, has `OrbModel? Model` property
+- **`MegaCrit.Sts2.Core.Nodes.Orbs.NOrbManager`** — manages orb slot layout/animations on creature
+
+#### Mod Access Pattern for Orb Data (recommended)
+
+```csharp
+// Get orb data from Player during combat
+Player player = ...; // from existing mod tracking
+PlayerCombatState pcs = player.PlayerCombatState;
+if (pcs != null)
+{
+    OrbQueue orbQueue = pcs.OrbQueue;
+    int capacity = orbQueue.Capacity;           // Max slots
+    IReadOnlyList<OrbModel> orbs = orbQueue.Orbs;  // Current orbs
+
+    foreach (OrbModel orb in orbs)
+    {
+        string type = orb.Id.Entry;             // "Lightning", "Frost", "Dark", "Plasma", "Glass"
+        decimal passive = orb.PassiveVal;       // Current passive value (Focus-adjusted)
+        decimal evoke = orb.EvokeVal;           // Current evoke value (Focus-adjusted)
+    }
+}
+
+// Hook subscriptions for orb events
+// Use [HarmonyPostfix] on Hook.AfterOrbChanneled / Hook.AfterOrbEvoked
+// Or subscribe via AbstractModel.AfterOrbChanneled override in a relic/power
+```

@@ -52,6 +52,25 @@ public class PlayerState
 
     [JsonPropertyName("potions")]
     public List<PotionInfo> Potions { get; set; } = new();
+
+    /// <summary>
+    /// Defect orb slots. Empty list for non-Defect characters.
+    /// Extraction from STS2 game objects deferred to Wave 5.
+    /// </summary>
+    [JsonPropertyName("orbs")]
+    public List<OrbInfo> Orbs { get; set; } = new();
+
+    /// <summary>
+    /// Defect Focus power amount. Affects orb passive/evoke values.
+    /// </summary>
+    [JsonPropertyName("focus")]
+    public int Focus { get; set; }
+
+    /// <summary>
+    /// Maximum number of orb slots available.
+    /// </summary>
+    [JsonPropertyName("maxOrbs")]
+    public int MaxOrbs { get; set; }
 }
 
 public class MonsterInfo
