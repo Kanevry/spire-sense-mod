@@ -29,6 +29,8 @@
     <Compile Include="../SpireSenseMod/Models/CharacterValidator.cs" Link="Source/Models/CharacterValidator.cs" />
     <Compile Include="../SpireSenseMod/GameStateTracker.cs" Link="Source/GameStateTracker.cs" />
     <Compile Include="../SpireSenseMod/Hooks/HookEventAdapter.cs" Link="Source/Hooks/HookEventAdapter.cs" />
+    <Compile Include="../SpireSenseMod/Server/WebSocketServer.cs" Link="Source/Server/WebSocketServer.cs" />
+    <Compile Include="../SpireSenseMod/Server/ReflectionCache.cs" Link="Source/Server/ReflectionCache.cs" />
   </ItemGroup>
 
 </Project>

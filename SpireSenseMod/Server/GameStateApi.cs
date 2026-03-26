@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Godot;
 using HarmonyLib;
@@ -19,6 +20,8 @@ namespace SpireSenseMod;
 /// </summary>
 public static class GameStateApi
 {
+    // MOD-004: Reflection cache — delegated to ReflectionCache.cs for testability
+
     /// <summary>Thread-safe set of already-dumped type names (debug logging dedup).</summary>
     private static readonly ConcurrentDictionary<string, byte> _dumpedTypes = new();
 
@@ -42,18 +45,17 @@ public static class GameStateApi
     // Harmony Traverse.Property().GetValue<object>() returns null for IReadOnlyList<T>
     // and IEnumerable<T> types. Direct reflection works. Use these helpers everywhere.
 
-    /// <summary>Get a public property value via direct reflection (works for all types including collections).</summary>
+    /// <summary>Cached property lookup (MOD-004). Delegates to ReflectionCache.</summary>
     public static object? GetProp(object? obj, string name)
-        => obj?.GetType().GetProperty(name)?.GetValue(obj);
+        => ReflectionCache.GetProp(obj, name);
 
-    /// <summary>Get a field value via direct reflection (public + private).</summary>
+    /// <summary>Cached field lookup (MOD-004). Delegates to ReflectionCache.</summary>
     public static object? GetField(object? obj, string name)
-        => obj?.GetType().GetField(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(obj);
+        => ReflectionCache.GetField(obj, name);
 
     /// <summary>Get a collection (IEnumerable) from a property, with optional field fallback.</summary>
     public static System.Collections.IEnumerable? GetCollection(object? obj, string propName, string? fieldFallback = null)
-        => GetProp(obj, propName) as System.Collections.IEnumerable
-            ?? (fieldFallback != null ? GetField(obj, fieldFallback) as System.Collections.IEnumerable : null);
+        => ReflectionCache.GetCollection(obj, propName, fieldFallback);
 
     /// <summary>
     /// Resolve a LocString object to its localized text via Godot's TranslationServer.

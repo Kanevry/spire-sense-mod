@@ -113,6 +113,7 @@ public class WebSocketServer : IDisposable
     /// </summary>
     private void EnqueueEvent(GameEvent gameEvent)
     {
+        if (_disposed) return;  // MOD-003: Guard against post-disposal event enqueue
         _batchQueue.Enqueue(gameEvent);
 
         // Trigger immediate flush if the batch is full
@@ -128,6 +129,7 @@ public class WebSocketServer : IDisposable
     /// </summary>
     private void FlushBatchQueue()
     {
+        if (_disposed) return;  // MOD-003: Guard against post-disposal flush
         // Prevent concurrent flushes — only one thread enters at a time
         if (Interlocked.CompareExchange(ref _flushing, 1, 0) != 0)
             return;

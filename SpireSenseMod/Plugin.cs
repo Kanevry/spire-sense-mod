@@ -12,6 +12,11 @@ namespace SpireSenseMod;
 /// </summary>
 public static class Plugin
 {
+    /// <summary>
+    /// Harmony instance reference. The game's own PatchAll() applies our [HarmonyPatch] attributes,
+    /// so we don't create our own instance. UnpatchAll() is intentionally a no-op — patches are
+    /// managed by the game's Harmony lifecycle.
+    /// </summary>
     public static Harmony? HarmonyInstance { get; private set; }
     public static HttpServer? Server { get; private set; }
     public static WebSocketServer? WsServer { get; private set; }
@@ -21,7 +26,7 @@ public static class Plugin
     /// <summary>Debug mode enables type discovery logging and verbose output.</summary>
     public static bool DebugMode { get; set; }
 
-    private static bool _initialized;
+    private static volatile bool _initialized;
     private const string HarmonyId = "com.spiresense.mod";
     private const int HttpPort = 8080;
     private const int WsPort = 8081;
@@ -81,6 +86,13 @@ public static class Plugin
         try
         {
             GD.Print("[SpireSense] Initializing via Init() fallback...");
+
+            // Guard: AutoInit may have partially initialized before failing
+            if (StateTracker != null)
+            {
+                GD.Print("[SpireSense] StateTracker already exists, skipping re-creation.");
+                return;
+            }
 
             StateTracker = new GameStateTracker();
 

@@ -18,7 +18,7 @@ public class HttpServer : IDisposable
     private readonly GameStateTracker _stateTracker;
     private readonly CancellationTokenSource _cts = new();
     private readonly int _port;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -57,7 +57,9 @@ public class HttpServer : IDisposable
 
     private async Task ListenLoop(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        // Primary shutdown: CancellationToken. Belt-and-suspenders: _disposed guard
+        // because GetContextAsync() does not accept a CancellationToken.
+        while (!ct.IsCancellationRequested && !_disposed)
         {
             try
             {
