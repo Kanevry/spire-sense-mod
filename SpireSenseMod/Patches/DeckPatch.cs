@@ -9,12 +9,20 @@ using HarmonyLib;
 namespace SpireSenseMod.Patches;
 
 /// <summary>
-/// Harmony patches for deck/relic state tracking.
-/// Updates the state tracker when relics are obtained and runs start/end.
+/// Harmony patches for relic state tracking and run lifecycle.
 ///
-/// Migrated to hooks (HookEventAdapter):
-///   - OnCardAdded → HandleCardAddedToDeck (via AfterCardAddedToDeck hook)
-///   - OnCardRemoved → HandleCardRemovedFromDeck (via AfterCardRemovedFromDeck hook)
+/// HARMONY-ONLY — NO HOOK EQUIVALENT (GitLab #126 audit, 2026-03-30):
+/// The STS2 Hook system does not expose hooks for:
+///   - RelicCmd.Obtain — no AfterRelicObtained hook exists.
+///   - RunManager.Launch — no AfterRunStart or BeforeRunStart hook exists.
+///   - RunManager.OnEnded — no AfterRunEnd or BeforeRunEnd hook exists.
+///
+/// Previously migrated to hooks (HookSubscriptions):
+///   - OnCardAdded → AfterCardChangedPiles (deck additions)
+///   - OnCardRemoved → BeforeCardRemoved (deck removals)
+///
+/// Remaining patches (3) handle functionality with no Hook equivalent.
+/// State mutations are delegated to HookEventAdapter for testability (GitLab #126).
 ///
 /// All patches use [HarmonyTargetMethod] for manual method resolution to avoid
 /// "Ambiguous match" errors when the game's PatchAll encounters overloaded methods.
@@ -55,16 +63,8 @@ public static class DeckPatch
                 var relic = __args[0];
                 var relicInfo = GameStateApi.ExtractRelicInfo(relic);
 
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.Relics.Add(relicInfo);
-                });
-
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "relic_obtained",
-                    Data = new { relic = relicInfo },
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleRelicObtained(relicInfo);
 
                 GD.Print($"[SpireSense] Relic obtained: {relicInfo.Name}");
             }
@@ -198,7 +198,7 @@ public static class DeckPatch
                     }
                 }
 
-                Plugin.StateTracker?.SetState(new GameState
+                Plugin.Adapter?.HandleRunStart(new GameState
                 {
                     Screen = ScreenType.Map,
                     Character = character,
@@ -208,12 +208,6 @@ public static class DeckPatch
                     Seed = seed,
                     Deck = startingDeck,
                     Relics = startingRelics,
-                });
-
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "run_start",
-                    Data = new { character, ascension, seed },
                 });
 
                 GD.Print($"[SpireSense] Run started: {character} A{ascension}, deck={startingDeck.Count}, relics={startingRelics.Count}, seed={seed}");
@@ -260,13 +254,8 @@ public static class DeckPatch
                     ?? (int?)GameStateApi.GetField(__instance, "_score")
                     ?? 0;
 
-                Plugin.StateTracker?.SetScreen(isVictory ? ScreenType.Victory : ScreenType.GameOver);
-
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "run_end",
-                    Data = new { won = isVictory, floor, score },
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleRunEnd(isVictory, floor, score);
 
                 GD.Print($"[SpireSense] Run ended: {(isVictory ? "Victory" : "Defeat")} at floor {floor}");
             }

@@ -3,6 +3,8 @@ using System.Runtime.CompilerServices;
 using Godot;
 using HarmonyLib;
 
+using SpireSenseMod.Hooks;
+
 namespace SpireSenseMod;
 
 /// <summary>
@@ -22,6 +24,7 @@ public static class Plugin
     public static WebSocketServer? WsServer { get; private set; }
     public static OverlayManager? Overlay { get; private set; }
     public static GameStateTracker? StateTracker { get; private set; }
+    public static HookEventAdapter? Adapter { get; private set; }
 
     /// <summary>Debug mode enables type discovery logging and verbose output.</summary>
     public static bool DebugMode { get; set; }
@@ -71,6 +74,7 @@ public static class Plugin
             GD.Print($"[SpireSense] Ports: HTTP={HttpPort}, WebSocket={WsPort}");
 
             StateTracker = new GameStateTracker();
+            Adapter = new HookEventAdapter(StateTracker);
 
             Server = new HttpServer(HttpPort, StateTracker);
             Server.Start();
@@ -123,6 +127,7 @@ public static class Plugin
             GD.Print($"[SpireSense] Ports: HTTP={HttpPort}, WebSocket={WsPort}");
 
             StateTracker = new GameStateTracker();
+            Adapter = new HookEventAdapter(StateTracker);
 
             Server = new HttpServer(HttpPort, StateTracker);
             Server.Start();
@@ -171,6 +176,7 @@ public static class Plugin
 
             Overlay?.Cleanup();
             Overlay = null;
+            Adapter = null;
             StateTracker = null;
             _initialized = false;
 

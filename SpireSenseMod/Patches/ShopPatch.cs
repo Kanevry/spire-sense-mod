@@ -10,8 +10,22 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for the shop screen.
 /// Intercepts shop exit and clears shop state.
 ///
-/// Migrated to hooks (HookEventAdapter):
-///   - OnShopEntered → HandleShopEntered (via AfterRoomEntered hook, MerchantRoom detection)
+/// HARMONY-ONLY — NO HOOK EQUIVALENT (GitLab #126 audit, 2026-03-30):
+/// The STS2 Hook system does not expose a hook for shop exit:
+///   - Hook.AfterRoomEntered fires when entering a MerchantRoom, and HookSubscriptions
+///     uses this to detect the shop, extract inventory (cards/relics), set Screen=Shop,
+///     and emit a floor_changed event.
+///   - No AfterShopExited, BeforeShopExited, or AfterMerchantRoomExit hook exists in
+///     MegaCrit.Sts2.Core.Hooks.Hook.
+///   - MerchantRoom.Exit(IRunState?) is a room lifecycle method — the only way to
+///     intercept shop exit is via Harmony patch.
+///
+/// Relationship with HookSubscriptions:
+///   - OnAfterRoomEntered handles shop ENTRY (inventory extraction + Screen=Shop).
+///     This patch handles shop EXIT (clear shop data + Screen=Map).
+///     These are complementary lifecycle events with no overlap.
+///
+/// State mutations are delegated to HookEventAdapter for testability (GitLab #126).
 ///
 /// All patches use [HarmonyTargetMethod] for manual method resolution to avoid
 /// "Ambiguous match" errors when the game's PatchAll encounters overloaded methods.
@@ -48,12 +62,8 @@ public static class ShopPatch
         {
             try
             {
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.Screen = ScreenType.Map;
-                    state.ShopCards = null;
-                    state.ShopRelics = null;
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleShopExited();
 
                 GD.Print("[SpireSense] Shop exited");
             }

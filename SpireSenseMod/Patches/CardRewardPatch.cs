@@ -12,6 +12,27 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for the card reward screen.
 /// Intercepts when cards are offered and when the player picks/skips.
 ///
+/// HARMONY-ONLY — NO HOOK EQUIVALENT (GitLab #126 analysis, 2026-03-30):
+/// The STS2 Hook system exposes only generic reward hooks:
+///   - Hook.BeforeRewardsOffered(IRunState, Player, IReadOnlyList&lt;Reward&gt;) — fires for the
+///     post-combat reward list (gold/potion/card/relic options), NOT the card selection sub-screen.
+///   - Hook.AfterRewardTaken(IRunState, Player, Reward) — fires after any reward is taken from
+///     the reward list, with a generic Reward object that lacks the specific card choices.
+///
+/// Neither hook provides:
+///   1. The IReadOnlyList&lt;CardCreationResult&gt; (the 3 specific cards offered)
+///   2. The NCardHolder.CardModel (the specific card the player picked)
+///   3. Correct UI timing for showing/hiding overlay tier badges
+///
+/// The card selection screen (NCardRewardSelectionScreen) is a sub-screen within the reward flow.
+/// No Hook covers it, so Harmony patches on ShowScreen/SelectCard must remain.
+///
+/// Relationship with HookSubscriptions:
+///   - OnAfterCardChangedPiles emits "deck_changed" when the picked card enters the deck.
+///     This is COMPLEMENTARY (tracks deck composition), not a DUPLICATE of "card_picked"
+///     (tracks the player's choice + alternatives). Both events serve different purposes.
+///   - OnAfterCombatEnd explicitly defers CardReward screen setting to this patch.
+///
 /// All patches use [HarmonyTargetMethod] for manual method resolution to avoid
 /// "Ambiguous match" errors when the game's PatchAll encounters overloaded methods.
 ///
@@ -127,15 +148,10 @@ public static class CardRewardPatch
                     return;
                 }
 
-                Plugin.StateTracker?.SetCardRewards(cardInfos);
-                Plugin.StateTracker?.SetScreen(ScreenType.CardReward);
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "card_rewards_shown",
-                    Data = new { cards = cardInfos },
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleCardRewardsShown(cardInfos);
 
-                // Update overlay with tier badges
+                // Update overlay with tier badges (UI concern, stays in patch)
                 Plugin.Overlay?.ShowCardTiers(cardInfos);
 
                 GD.Print($"[SpireSense] Card rewards: {cardInfos.Count} cards offered");
@@ -226,13 +242,10 @@ public static class CardRewardPatch
                 var cardInfo = GameStateApi.ExtractCardInfo(cardModel);
                 var alternatives = Plugin.StateTracker?.GetCurrentState().CardRewards ?? new List<CardInfo>();
 
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "card_picked",
-                    Data = new { card = cardInfo, alternatives },
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleCardPicked(cardInfo, alternatives);
 
-                Plugin.StateTracker?.SetCardRewards(null);
+                // UI concern: hide overlay tier badges (stays in patch)
                 Plugin.Overlay?.HideCardTiers();
 
                 GD.Print($"[SpireSense] Card picked: {cardInfo.Name}");

@@ -8,7 +8,7 @@
 - **SDK:** Godot.NET.Sdk 4.5.1, LangVersion latest, Nullable enabled
 - **Entry Point:** `[ModuleInitializer]` on `Plugin.AutoInit()`, `[ModInitializer("Init")]` fallback, `Plugin.Unload()` for clean shutdown
 - **Read-Only:** Never modifies game state. Observation only.
-- **Test Count:** 176 tests (xUnit, no Godot dependency)
+- **Test Count:** 231 tests (xUnit, no Godot dependency)
 - **Source Control:** GitHub (public, MIT), GitLab mirror
 
 ## Commands
@@ -16,7 +16,7 @@
 ```bash
 dotnet build                    # Build DLL (auto-deploys to mods folder if STS2GamePath set)
 dotnet build -c Release         # Release build
-dotnet test SpireSenseMod.Tests # xUnit tests (176 tests, no Godot dependency)
+dotnet test SpireSenseMod.Tests # xUnit tests (231 tests, no Godot dependency)
 ```
 
 ## Setup
@@ -74,13 +74,13 @@ SpireSenseMod/
     CharacterValidator.cs # Character name validation
   Hooks/
     HookSubscriptions.cs # STS2 Hook system subscriptions (STD-003): 11 hooks
-    HookEventAdapter.cs  # Testable adapter: translates hook data into GameStateTracker mutations
+    HookEventAdapter.cs  # Testable adapter: translates hook/patch data into GameStateTracker mutations
   Patches/               # Harmony patches (fallback where no Hook exists)
-    CardRewardPatch.cs   # Card reward shown/picked
-    DeckPatch.cs         # Relic obtained, run start/end
-    ShopPatch.cs         # Shop exit + inventory extraction
-    EventPatch.cs        # Event encounters, option extraction
-    RestPatch.cs         # Rest choice tracking
+    CardRewardPatch.cs   # Card reward shown/picked (no Hook — NCardRewardSelectionScreen)
+    DeckPatch.cs         # Relic obtained, run start/end (no Hook — RelicCmd, RunManager)
+    ShopPatch.cs         # Shop exit (no Hook — MerchantRoom.Exit)
+    EventPatch.cs        # Event encounters, option selection (no Hook — EventModel, NEventOptionButton)
+    RestPatch.cs         # Rest choice selection (no Hook — NRestSiteButton)
   Server/
     HttpServer.cs        # HttpListener on localhost:8080, CORS, 5s timeout, /api/version
     WebSocketServer.cs   # HttpListener on localhost:8081, batched broadcast, backpressure
@@ -127,6 +127,40 @@ Backpressure: max 10 pending sends per client, 5s send timeout. Batching: 50ms i
 - **MOD-003 (Hook-first patches):** New mod event subscriptions use STS2 Hook system (`MegaCrit.Sts2.Core.Hooks.Hook`) via `[HarmonyPostfix]`. Harmony patches only as fallback where no Hook exists.
 - **MOD-004 (Observation-only):** All patches are `[HarmonyPostfix]` -- never modify game state, never use `[HarmonyPrefix]` with return value manipulation.
 - **MOD-005 (Priority convention):** All patch classes use `[HarmonyPriority(Priority.HigherThanNormal)]` (600) to run after core game logic but before other mods.
+- **MOD-006 (Adapter delegation):** All Harmony patches delegate state mutations to `HookEventAdapter` via `Plugin.Adapter?.Handle*()`. Patches only extract game data via `GameStateApi` + handle UI concerns (overlay). State mutations stay in the adapter for testability.
+
+## Hook Migration Status (GitLab #126, audited 2026-03-30)
+
+### Fully migrated to Hooks (11 subscriptions in HookSubscriptions.cs)
+| Hook | Replaces | Events |
+|------|----------|--------|
+| AfterPlayerTurnStart | CombatPatch.OnTurnStart | state_update (turn, hand, piles, monsters) |
+| BeforeCombatStart | CombatPatch.OnCombatStart | combat_start |
+| AfterCombatEnd | CombatPatch.OnCombatEnd | combat_end |
+| AfterMapGenerated | MapPatch.OnMapGenerated | state_update (map nodes) |
+| AfterCardPlayed | CombatPatch.OnCardPlayed | card_played |
+| AfterAttack | (new) | state_update (post-damage refresh) |
+| AfterPotionUsed | PotionPatch.OnPotionUsed | potion_used |
+| AfterPotionProcured | PotionPatch.OnPotionObtained | potion_obtained |
+| AfterRoomEntered | MapPatch.OnFloorChanged + ShopPatch.OnShopEntered + RestPatch.OnRestEntered | floor_changed, rest_entered |
+| AfterCardChangedPiles | DeckPatch.OnCardAdded | deck_changed |
+| BeforeCardRemoved | DeckPatch.OnCardRemoved | card_removed |
+
+### Remaining Harmony-only patches (5 files, 9 patches -- no Hook equivalent)
+| Patch | Target | Reason no Hook exists |
+|-------|--------|----------------------|
+| DeckPatch.OnRelicObtained | RelicCmd.Obtain | No AfterRelicObtained hook |
+| DeckPatch.OnRunStart | RunManager.Launch | No AfterRunStart hook |
+| DeckPatch.OnRunEnd | RunManager.OnEnded | No AfterRunEnd hook |
+| CardRewardPatch.OnCardRewardsShown | NCardRewardSelectionScreen.ShowScreen | Reward hooks lack card-selection sub-screen data |
+| CardRewardPatch.OnCardPicked | NCardRewardSelectionScreen.SelectCard | No hook for card pick within reward flow |
+| EventPatch.OnEventStarted | EventModel.BeginEvent | AfterRoomEntered fires before event data is populated |
+| EventPatch.OnEventChoiceMade | NEventOptionButton.OnRelease | No hook for event option button press |
+| RestPatch.OnRestChoice | NRestSiteButton.SelectOption | No hook for rest choice button press |
+| ShopPatch.OnShopExited | MerchantRoom.Exit | No AfterShopExited hook |
+
+### No dedup guards needed
+The audit confirmed zero overlap between Hook subscriptions and remaining Harmony patches. Each patch handles a distinct game event that no Hook covers. No dual-fire scenarios exist.
 
 ## Key Decisions
 

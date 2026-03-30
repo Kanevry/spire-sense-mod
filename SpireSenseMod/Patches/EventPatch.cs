@@ -12,8 +12,37 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for in-game event encounters.
 /// Intercepts event start and choice selection.
 ///
+/// HARMONY-ONLY — NO HOOK EQUIVALENT (GitLab #126 analysis, 2026-03-30):
+/// The STS2 Hook system does not expose event-specific hooks:
+///   - Hook.AfterRoomEntered(IRunState, AbstractRoom) — fires when the player enters a room,
+///     but this occurs BEFORE EventModel.BeginEvent() populates the event name, description,
+///     and available options. The room object at that point has no usable event data.
+///   - No Hook.AfterEventStarted, Hook.BeforeEventStarted, or Hook.AfterEventOptionSelected
+///     exists in MegaCrit.Sts2.Core.Hooks.Hook.
+///
+/// Neither available hook provides:
+///   1. The EventModel with Name, Description, and CurrentOptions (populated by BeginEvent)
+///   2. The NEventOptionButton context (the specific option the player clicked)
+///
+/// Relationship with HookSubscriptions:
+///   - OnAfterRoomEntered detects MerchantRoom and RestSiteRoom but does NOT detect event rooms.
+///     There is no duplicate event emission — AfterRoomEntered sets Screen=Map for all unrecognized
+///     room types, and this patch later overrides it to Screen=Event when BeginEvent fires.
+///   - This timing gap (Map → Event) is correct and expected: the overlay shows the map briefly
+///     while the event UI loads, then transitions to the event screen.
+///
+/// State mutations are delegated to HookEventAdapter for testability (GitLab #126).
 /// All patches use [HarmonyTargetMethod] for manual method resolution to avoid
 /// "Ambiguous match" errors when the game's PatchAll encounters overloaded methods.
+///
+/// Decompiled from EventModel + NEventOptionButton (sts2.dll v0.99.x):
+///   - EventModel.BeginEvent(Player, bool) — instance method, populates CurrentOptions
+///   - EventModel.Name / EventId — string properties
+///   - EventModel.Description / _description — event flavor text
+///   - EventModel.CurrentOptions / _currentOptions — IReadOnlyList of option objects
+///   - NEventOptionButton.OnRelease() — instance method, UI button press handler
+///   - NEventOptionButton.Event — the parent EventModel
+///   - NEventOptionButton.Option — the selected option with OptionId/Title/IsEnabled
 /// </summary>
 public static class EventPatch
 {
@@ -79,17 +108,8 @@ public static class EventPatch
                     }
                 }
 
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.Screen = ScreenType.Event;
-                    state.EventOptions = eventOptions;
-                });
-
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "event_started",
-                    Data = new { name = eventName, description, options = eventOptions },
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleEventStarted(eventName, description, eventOptions);
 
                 GD.Print($"[SpireSense] Event started: {eventName} ({eventOptions.Count} options)");
             }
@@ -131,7 +151,6 @@ public static class EventPatch
             try
             {
                 // NEventOptionButton has Event and Option properties
-                var eventObj = GameStateApi.GetProp(__instance, "Event");
                 var optionObj = GameStateApi.GetProp(__instance, "Option");
 
                 string? choiceId = null;
@@ -145,21 +164,10 @@ public static class EventPatch
                         ?? GameStateApi.GetProp(optionObj, "Text"))?.ToString();
                 }
 
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "event_choice",
-                    Data = new
-                    {
-                        choiceId = choiceId ?? "unknown",
-                        choiceName = choiceText ?? "unknown",
-                    },
-                });
-
-                // Clear event state after choice
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.EventOptions = null;
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleEventChoice(
+                    choiceId ?? "unknown",
+                    choiceText ?? "unknown");
 
                 GD.Print($"[SpireSense] Event choice made: {choiceId ?? "unknown"}");
             }

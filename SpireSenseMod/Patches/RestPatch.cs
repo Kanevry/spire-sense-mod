@@ -12,8 +12,22 @@ namespace SpireSenseMod.Patches;
 /// Harmony patches for rest site interactions.
 /// Intercepts rest site choice selection (heal, smith, dig, etc.).
 ///
-/// Migrated to hooks (HookEventAdapter):
-///   - OnRestEntered → HandleRestEntered (via AfterRoomEntered hook, RestSiteRoom detection)
+/// HARMONY-ONLY — NO HOOK EQUIVALENT (GitLab #126 audit, 2026-03-30):
+/// The STS2 Hook system does not expose a hook for rest site choice selection:
+///   - Hook.AfterRoomEntered fires when entering a RestSiteRoom, but BEFORE the player
+///     selects an option. HookSubscriptions uses this to detect the rest site and extract
+///     available options (rest_entered event).
+///   - No AfterRestChoiceSelected, BeforeRestChoiceSelected, or AfterRestSiteOptionUsed
+///     hook exists in MegaCrit.Sts2.Core.Hooks.Hook.
+///   - NRestSiteButton.SelectOption is a UI button handler — the only way to intercept
+///     the player's choice is via Harmony patch.
+///
+/// Relationship with HookSubscriptions:
+///   - OnAfterRoomEntered detects RestSiteRoom and emits "rest_entered" with options.
+///     This is COMPLEMENTARY: rest_entered (Hook) fires on room entry, rest_choice (Patch)
+///     fires on button press. No duplicate emission occurs.
+///
+/// State mutations are delegated to HookEventAdapter for testability (GitLab #126).
 ///
 /// All patches use [HarmonyTargetMethod] for manual method resolution to avoid
 /// "Ambiguous match" errors when the game's PatchAll encounters overloaded methods.
@@ -60,17 +74,8 @@ public static class RestPatch
                     ?? GameStateApi.GetField(option, "_title"))?.ToString()
                     ?? option.GetType().Name.Replace("RestSiteOption", "");
 
-                Plugin.StateTracker?.EmitEvent(new GameEvent
-                {
-                    Type = "rest_choice",
-                    Data = new { choiceId, choiceName },
-                });
-
-                // Clear rest state after choice
-                Plugin.StateTracker?.UpdateState(state =>
-                {
-                    state.RestOptions = null;
-                });
+                // Delegate state mutations to the testable adapter (GitLab #126)
+                Plugin.Adapter?.HandleRestChoice(choiceId, choiceName);
 
                 GD.Print($"[SpireSense] Rest choice made: {choiceName}");
             }
