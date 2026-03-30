@@ -28,8 +28,28 @@ public static class Plugin
 
     private static volatile bool _initialized;
     private const string HarmonyId = "com.spiresense.mod";
-    private const int HttpPort = 8080;
-    private const int WsPort = 8081;
+    private const int DefaultHttpPort = 8080;
+    private const int DefaultWsPort = 8081;
+
+    /// <summary>
+    /// Resolved HTTP port (from SPIRESENSE_HTTP_PORT env var or default 8080).
+    /// </summary>
+    public static int HttpPort { get; private set; } = DefaultHttpPort;
+
+    /// <summary>
+    /// Resolved WebSocket port (from SPIRESENSE_WS_PORT env var or default 8081).
+    /// </summary>
+    public static int WsPort { get; private set; } = DefaultWsPort;
+
+    private static int ResolvePort(string envVar, int defaultPort)
+    {
+        var value = Environment.GetEnvironmentVariable(envVar);
+        if (!string.IsNullOrEmpty(value) && int.TryParse(value, out var port) && port is > 0 and <= 65535)
+        {
+            return port;
+        }
+        return defaultPort;
+    }
 
     /// <summary>
     /// .NET ModuleInitializer — fires automatically when the assembly is loaded.
@@ -46,6 +66,10 @@ public static class Plugin
             if (_initialized) return;
             GD.Print("[SpireSense] Module loaded, initializing servers...");
 
+            HttpPort = ResolvePort("SPIRESENSE_HTTP_PORT", DefaultHttpPort);
+            WsPort = ResolvePort("SPIRESENSE_WS_PORT", DefaultWsPort);
+            GD.Print($"[SpireSense] Ports: HTTP={HttpPort}, WebSocket={WsPort}");
+
             StateTracker = new GameStateTracker();
 
             Server = new HttpServer(HttpPort, StateTracker);
@@ -59,7 +83,7 @@ public static class Plugin
             Overlay = new OverlayManager();
 
             _initialized = true;
-            GD.Print("[SpireSense] Ready! Connect at http://localhost:8080");
+            GD.Print($"[SpireSense] Ready! Connect at http://localhost:{HttpPort}");
         }
         catch (Exception ex)
         {
@@ -94,6 +118,10 @@ public static class Plugin
                 return;
             }
 
+            HttpPort = ResolvePort("SPIRESENSE_HTTP_PORT", DefaultHttpPort);
+            WsPort = ResolvePort("SPIRESENSE_WS_PORT", DefaultWsPort);
+            GD.Print($"[SpireSense] Ports: HTTP={HttpPort}, WebSocket={WsPort}");
+
             StateTracker = new GameStateTracker();
 
             Server = new HttpServer(HttpPort, StateTracker);
@@ -113,7 +141,7 @@ public static class Plugin
             }
 
             _initialized = true;
-            GD.Print("[SpireSense] Ready! Connect at http://localhost:8080");
+            GD.Print($"[SpireSense] Ready! Connect at http://localhost:{HttpPort}");
         }
         catch (Exception ex)
         {

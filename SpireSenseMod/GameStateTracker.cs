@@ -36,7 +36,14 @@ public class GameStateTracker
     /// </summary>
     public GameState GetCurrentState()
     {
-        return JsonSerializer.Deserialize<GameState>(GetSerializedState(), _jsonOptions)!;
+        var json = GetSerializedState();
+        var state = JsonSerializer.Deserialize<GameState>(json, _jsonOptions);
+        if (state is null)
+        {
+            throw new InvalidOperationException(
+                $"[SpireSense] Failed to deserialize GameState from snapshot (length={json.Length}). This indicates corrupted internal state.");
+        }
+        return state;
     }
 
     /// <summary>
